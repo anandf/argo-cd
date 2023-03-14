@@ -134,7 +134,7 @@ func NewCommand() *cobra.Command {
 				appController.InvalidateProjectsCache()
 			}))
 			kubectl := kubeutil.NewKubectl()
-			clusterFilter := getClusterFilter()
+			clusterFilter := getClusterIndexFilter(redisClient)
 			appController, err = controller.NewApplicationController(
 				namespace,
 				settingsMgr,
@@ -217,4 +217,29 @@ func getClusterFilter() func(cluster *v1alpha1.Cluster) bool {
 		log.Info("Processing all cluster shards")
 	}
 	return clusterFilter
+}
+
+func getClusterIndexFilter(redisClient *redis.Client) func(cluster *v1alpha1.Cluster) bool {
+	replicas := env.ParseNumFromEnv(common.EnvControllerReplicas, 0, 0, math.MaxInt32)
+	shard, err := sharding.InferShard()
+	errors.CheckError(err)
+	if replicas > 1 {
+		return func(cluster *v1alpha1.Cluster) bool {
+			if cluster == nil {
+				return false
+			}
+			_, err := redisClient.ZAdd(context.Background(), "clusterset", redis.Z{Member: cluster.Server, Score: float64(1)}).Result()
+			if err != nil {
+				log.Error("Error filtering clusters for shard distribution")
+				return false
+			}
+			index, err := redisClient.ZRank(context.Background(), "clusterset", cluster.Server).Result()
+			if err != nil {
+				log.Error("Error filtering clusters for shard distribution")
+				return false
+			}
+			return int(index)%replicas == shard
+		}
+	}
+	return nil
 }

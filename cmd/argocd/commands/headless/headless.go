@@ -96,6 +96,12 @@ func (c *forwardCacheClient) NotifyUpdated(key string) error {
 	})
 }
 
+func (c *forwardCacheClient) DeleteSetItem(key, clusterName string) error {
+	return c.doLazy(func(client cache.CacheClient) error {
+		return client.DeleteSetItem(key, clusterName)
+	})
+}
+
 type forwardRepoClientset struct {
 	namespace     string
 	context       string

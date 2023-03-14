@@ -150,6 +150,11 @@ func (r *redisCache) NotifyUpdated(key string) error {
 	return r.client.Publish(context.TODO(), key, "").Err()
 }
 
+func (r *redisCache) DeleteSetItem(key, clusterName string) error {
+	err := r.client.ZRem(context.TODO(), "clusterset", clusterName).Err()
+	return err
+}
+
 type MetricsRegistry interface {
 	IncRedisRequest(failed bool)
 	ObserveRedisRequestDuration(duration time.Duration)

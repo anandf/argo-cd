@@ -277,11 +277,17 @@ func (s *Server) Delete(ctx context.Context, q *cluster.ClusterQuery) (*cluster.
 			return nil, err
 		}
 		for _, server := range servers {
+			if err := removeFromClusterSet(s, server); err != nil {
+				return nil, err
+			}
 			if err := enforceAndDelete(s, ctx, server, c.Project); err != nil {
 				return nil, err
 			}
 		}
 	} else {
+		if err := removeFromClusterSet(s, q.Server); err != nil {
+			return nil, err
+		}
 		if err := enforceAndDelete(s, ctx, q.Server, c.Project); err != nil {
 			return nil, err
 		}
@@ -289,6 +295,16 @@ func (s *Server) Delete(ctx context.Context, q *cluster.ClusterQuery) (*cluster.
 
 	return &cluster.ClusterResponse{}, nil
 }
+
+func removeFromClusterSet(s *Server, server string) error {
+	logCtx := log.WithField("cluster", server)
+        logCtx.Info("Deleting cluster from list " + server)
+        if err := s.cache.GetCache().GetClient().DeleteSetItem("clusters", server); err != nil {
+                return err
+	}
+	return nil
+}
+
 
 func enforceAndDelete(s *Server, ctx context.Context, server, project string) error {
 	if err := s.enf.EnforceErr(ctx.Value("claims"), rbacpolicy.ResourceClusters, rbacpolicy.ActionDelete, createRBACObject(project, server)); err != nil {

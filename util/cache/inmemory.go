@@ -99,3 +99,7 @@ func (i *InMemoryCache) Items(createNewObject func() interface{}) (map[string]in
 
 	return result, nil
 }
+
+func (i *InMemoryCache) DeleteSetItem(key, clusterName string) error {
+	return nil
+}

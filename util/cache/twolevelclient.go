@@ -66,3 +66,7 @@ func (c *twoLevelClient) OnUpdated(ctx context.Context, key string, callback fun
 func (c *twoLevelClient) NotifyUpdated(key string) error {
 	return c.externalCache.NotifyUpdated(key)
 }
+
+func (c *twoLevelClient) DeleteSetItem(key, clusterName string) error {
+	return c.externalCache.DeleteSetItem(key, clusterName)
+}

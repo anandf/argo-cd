@@ -21,4 +21,5 @@ type CacheClient interface {
 	Delete(key string) error
 	OnUpdated(ctx context.Context, key string, callback func() error) error
 	NotifyUpdated(key string) error
+	DeleteSetItem(key, itemName string) error
 }
