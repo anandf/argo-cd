@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"time"
 
 	"github.com/argoproj/pkg/stats"
@@ -134,7 +135,7 @@ func NewCommand() *cobra.Command {
 				appController.InvalidateProjectsCache()
 			}))
 			kubectl := kubeutil.NewKubectl()
-			clusterFilter := getClusterFilter()
+			clusterFilter := getClusterFilter(redisClient, kubeClient)
 			appController, err = controller.NewApplicationController(
 				namespace,
 				settingsMgr,
@@ -201,18 +202,39 @@ func NewCommand() *cobra.Command {
 	return &command
 }
 
-func getClusterFilter() func(cluster *v1alpha1.Cluster) bool {
-	replicas := env.ParseNumFromEnv(common.EnvControllerReplicas, 0, 0, math.MaxInt32)
+func getClusterFilter(redisClient *redis.Client, kubernetesClient *kubernetes.Clientset) func(cluster *v1alpha1.Cluster) bool {
+	//replicas := env.ParseNumFromEnv(common.EnvControllerReplicas, 0, 0, math.MaxInt32)
+	replicas, err := sharding.GetReplicaCount(kubernetesClient)
+	errors.CheckError(err)
 	shard := env.ParseNumFromEnv(common.EnvControllerShard, -1, -math.MaxInt32, math.MaxInt32)
 	var clusterFilter func(cluster *v1alpha1.Cluster) bool
 	if replicas > 1 {
 		if shard < 0 {
 			var err error
 			shard, err = sharding.InferShard()
-			errors.CheckError(err)
+			// if deployed to through Deployments instead of StatefulSet, InferShard() would return an error.
+			if err != nil {
+				i := 0
+				for i < 10 {
+					shard, err = sharding.InferShardFromPodIP(kubernetesClient)
+					errors.CheckError(err)
+					if shard < replicas {
+						break
+					} else {
+						time.Sleep(100 * time.Millisecond)
+					}
+				}
+			}
+
 		}
 		log.Infof("Processing clusters from shard %d", shard)
-		clusterFilter = sharding.GetClusterFilter(replicas, shard)
+		shardingAlgorthim := os.Getenv("ARGOCD_SHARDING_ALGORTHIM")
+		if shardingAlgorthim == "SHARD_BY_CLUSTER_ID" {
+			clusterFilter = sharding.GetClusterFilter(replicas, shard, sharding.GetShardFnById(replicas))
+		} else {
+			clusterFilter = sharding.GetClusterFilter(replicas, shard, sharding.GetShardFnByIndexPos(replicas, redisClient))
+		}
+
 	} else {
 		log.Info("Processing all cluster shards")
 	}
