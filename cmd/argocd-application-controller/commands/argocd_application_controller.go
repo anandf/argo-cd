@@ -203,40 +203,14 @@ func NewCommand() *cobra.Command {
 }
 
 func getClusterFilter(redisClient *redis.Client, kubernetesClient *kubernetes.Clientset) func(cluster *v1alpha1.Cluster) bool {
-	//replicas := env.ParseNumFromEnv(common.EnvControllerReplicas, 0, 0, math.MaxInt32)
-	replicas, err := sharding.GetReplicaCount(kubernetesClient)
-	errors.CheckError(err)
-	shard := env.ParseNumFromEnv(common.EnvControllerShard, -1, -math.MaxInt32, math.MaxInt32)
 	var clusterFilter func(cluster *v1alpha1.Cluster) bool
-	if replicas > 1 {
-		if shard < 0 {
-			var err error
-			shard, err = sharding.InferShard()
-			// if deployed to through Deployments instead of StatefulSet, InferShard() would return an error.
-			if err != nil {
-				i := 0
-				for i < 10 {
-					shard, err = sharding.InferShardFromPodIP(kubernetesClient)
-					errors.CheckError(err)
-					if shard < replicas {
-						break
-					} else {
-						time.Sleep(100 * time.Millisecond)
-					}
-				}
-			}
-
-		}
-		log.Infof("Processing clusters from shard %d", shard)
-		shardingAlgorthim := os.Getenv("ARGOCD_SHARDING_ALGORTHIM")
-		if shardingAlgorthim == "SHARD_BY_CLUSTER_ID" {
-			clusterFilter = sharding.GetClusterFilter(replicas, shard, sharding.GetShardFnById(replicas))
-		} else {
-			clusterFilter = sharding.GetClusterFilter(replicas, shard, sharding.GetShardFnByIndexPos(replicas, redisClient))
-		}
-
+	shardingAlgorthim := os.Getenv("ARGOCD_SHARDING_ALGORTHIM")
+	if shardingAlgorthim == "SHARD_BY_CLUSTER_ID" {
+		log.Info("Sharding by cluster secret UUID algorthim")
+		clusterFilter = sharding.GetClusterFilter(kubernetesClient, sharding.GetShardFnById(kubernetesClient))
 	} else {
-		log.Info("Processing all cluster shards")
+		log.Info("Sharding by cluster unique incrementing index algorthim")
+		clusterFilter = sharding.GetClusterFilter(kubernetesClient, sharding.GetShardFnByIndexPos(kubernetesClient, redisClient))
 	}
 	return clusterFilter
 }

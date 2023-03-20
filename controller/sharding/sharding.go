@@ -11,9 +11,12 @@ import (
 
 	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	"github.com/redis/go-redis/v9"
+	log "github.com/sirupsen/logrus"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
+
+type getClusterShardFn func(c *v1alpha1.Cluster) int
 
 func InferShard() (int, error) {
 	hostname, err := os.Hostname()
@@ -35,6 +38,7 @@ func InferShardFromPodIP(kubernetesClient *kubernetes.Clientset) (int, error) {
 	podIP, found := os.LookupEnv("POD_IP")
 	if !found {
 		return 0, fmt.Errorf("environment variable POD_IP required for getting the shard value is not set")
+
 	}
 	podNamespace, found := os.LookupEnv("POD_NAMESPACE")
 	if !found {
@@ -44,24 +48,20 @@ func InferShardFromPodIP(kubernetesClient *kubernetes.Clientset) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-
 	ipAddresses := []string{}
 	for _, subset := range endpoints.Subsets {
 		for _, address := range subset.Addresses {
-			ipAddresses = append(ipAddresses, address.IP)
-		}
-		for _, address := range subset.NotReadyAddresses {
 			ipAddresses = append(ipAddresses, address.IP)
 		}
 	}
 	sort.Strings(ipAddresses)
 	for index, ipAddress := range ipAddresses {
 		if ipAddress == podIP {
+			log.Info(fmt.Sprintf("Returning shard  %d for Pod IP %s", index, podIP))
 			return index, nil
 		}
 	}
-
-	return -1, fmt.Errorf("could not find pod ip %s in the endpoints object", podIP)
+	return 0, fmt.Errorf("could not find pod ip %s in the endpoints object", podIP)
 }
 
 // GetReplicaCount returns the replica count configured for the application controller deployment
@@ -88,8 +88,13 @@ func GetShardByID(id string, replicas int) int {
 	}
 }
 
-func GetClusterFilter(replicas int, shard int, shardFn getClusterShardFn) func(c *v1alpha1.Cluster) bool {
+func GetClusterFilter(kubernetesClient *kubernetes.Clientset, shardFn getClusterShardFn) func(c *v1alpha1.Cluster) bool {
 	return func(c *v1alpha1.Cluster) bool {
+		shard, err := InferShardFromPodIP(kubernetesClient)
+		if err != nil {
+			log.Error(fmt.Sprintf("error while getting the shard of the current POD %s", err.Error()))
+			return false
+		}
 		clusterShard := 0
 		//  cluster might be nil if app is using invalid cluster URL, assume shard 0 in this case.
 		if c != nil {
@@ -103,36 +108,55 @@ func GetClusterFilter(replicas int, shard int, shardFn getClusterShardFn) func(c
 	}
 }
 
-type getClusterShardFn func(c *v1alpha1.Cluster) int
-
-func GetShardFnById(replicas int) getClusterShardFn {
-	replicasInternal := replicas
+func GetShardFnById(kubernetesClient *kubernetes.Clientset) getClusterShardFn {
 	return func(c *v1alpha1.Cluster) int {
+		replicas := getReplicaCount(kubernetesClient)
+		if replicas <= 1 {
+			return 0
+		}
 		if c.ID == "" {
+			log.Info("cluster ID is empty, returning 0")
 			return 0
 		} else {
 			h := fnv.New32a()
 			_, _ = h.Write([]byte(c.ID))
-			return int(h.Sum32() % uint32(replicasInternal))
+			shardValue := int(h.Sum32() % uint32(replicas))
+			log.Info(fmt.Sprintf("Calculated shard value from cluster secret UUID: %d", shardValue))
+			return shardValue
 		}
 	}
 }
 
-func GetShardFnByIndexPos(replicas int, client *redis.Client) getClusterShardFn {
-	replicasInternal := replicas
-	redisClient := client
+func GetShardFnByIndexPos(kubernetesClient *kubernetes.Clientset, redisClient *redis.Client) getClusterShardFn {
 	return func(c *v1alpha1.Cluster) int {
+		replicas := getReplicaCount(kubernetesClient)
+		if replicas <= 1 {
+			return 0
+		}
 		if c == nil {
+			log.Error("cluster is nil, returning default shard value 0")
 			return 0
 		}
 		_, err := redisClient.ZAdd(context.Background(), "clusterset", redis.Z{Member: c.Server, Score: float64(1)}).Result()
 		if err != nil {
+			log.Error(fmt.Sprintf("could not add cluster server url %s to the redis cache: %s", c.Server, err.Error()))
 			return 0
 		}
 		index, err := redisClient.ZRank(context.Background(), "clusterset", c.Server).Result()
 		if err != nil {
+			log.Error(fmt.Sprintf("could not get the index for cluster server url %s from the redis cache: %s", c.Server, err.Error()))
 			return 0
 		}
-		return int(index) % replicasInternal
+		return int(index) % replicas
 	}
+}
+
+func getReplicaCount(kubernetesClient *kubernetes.Clientset) int {
+	replicas, err := GetReplicaCount(kubernetesClient)
+	if err != nil {
+		log.Error(fmt.Sprintf("error while getting the replica count %s", err.Error()))
+		return 0
+	}
+	log.Info(fmt.Sprintf("Replica count: %d", replicas))
+	return replicas
 }
