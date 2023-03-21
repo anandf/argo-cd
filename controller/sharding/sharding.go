@@ -10,7 +10,8 @@ import (
 	"strings"
 
 	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
-	"github.com/redis/go-redis/v9"
+	"github.com/argoproj/argo-cd/v2/util/db"
+	"github.com/argoproj/argo-cd/v2/util/settings"
 	log "github.com/sirupsen/logrus"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -127,9 +128,10 @@ func GetShardFnById(kubernetesClient *kubernetes.Clientset) getClusterShardFn {
 	}
 }
 
-func GetShardFnByIndexPos(kubernetesClient *kubernetes.Clientset, redisClient *redis.Client) getClusterShardFn {
+func GetShardFnByIndexPos(namespace string, settingsMgr *settings.SettingsManager, kubeClientset *kubernetes.Clientset) getClusterShardFn {
+	db := db.NewDB(namespace, settingsMgr, kubeClientset)
 	return func(c *v1alpha1.Cluster) int {
-		replicas := getReplicaCount(kubernetesClient)
+		replicas := getReplicaCount(kubeClientset)
 		if replicas <= 1 {
 			return 0
 		}
@@ -137,17 +139,21 @@ func GetShardFnByIndexPos(kubernetesClient *kubernetes.Clientset, redisClient *r
 			log.Error("cluster is nil, returning default shard value 0")
 			return 0
 		}
-		_, err := redisClient.ZAdd(context.Background(), "clusterset", redis.Z{Member: c.Server, Score: float64(1)}).Result()
+		clusters, err := db.ListClusters(context.Background())
 		if err != nil {
-			log.Error(fmt.Sprintf("could not add cluster server url %s to the redis cache: %s", c.Server, err.Error()))
 			return 0
 		}
-		index, err := redisClient.ZRank(context.Background(), "clusterset", c.Server).Result()
-		if err != nil {
-			log.Error(fmt.Sprintf("could not get the index for cluster server url %s from the redis cache: %s", c.Server, err.Error()))
-			return 0
+		clusterURLs := []string{}
+		for _, cluster := range clusters.Items {
+			clusterURLs = append(clusterURLs, cluster.Server)
 		}
-		return int(index) % replicas
+		sort.Strings(clusterURLs)
+		for index, clusterURL := range clusterURLs {
+			if clusterURL == c.Server {
+				return int(index) % replicas
+			}
+		}
+		return 0
 	}
 }
 

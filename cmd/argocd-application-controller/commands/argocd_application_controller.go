@@ -135,7 +135,7 @@ func NewCommand() *cobra.Command {
 				appController.InvalidateProjectsCache()
 			}))
 			kubectl := kubeutil.NewKubectl()
-			clusterFilter := getClusterFilter(redisClient, kubeClient)
+			clusterFilter := getClusterFilter(namespace, settingsMgr, kubeClient)
 			appController, err = controller.NewApplicationController(
 				namespace,
 				settingsMgr,
@@ -202,7 +202,7 @@ func NewCommand() *cobra.Command {
 	return &command
 }
 
-func getClusterFilter(redisClient *redis.Client, kubernetesClient *kubernetes.Clientset) func(cluster *v1alpha1.Cluster) bool {
+func getClusterFilter(namespace string, settingsMgr *settings.SettingsManager, kubernetesClient *kubernetes.Clientset) func(cluster *v1alpha1.Cluster) bool {
 	var clusterFilter func(cluster *v1alpha1.Cluster) bool
 	shardingAlgorthim := os.Getenv("ARGOCD_SHARDING_ALGORTHIM")
 	if shardingAlgorthim == "SHARD_BY_CLUSTER_ID" {
@@ -210,7 +210,7 @@ func getClusterFilter(redisClient *redis.Client, kubernetesClient *kubernetes.Cl
 		clusterFilter = sharding.GetClusterFilter(kubernetesClient, sharding.GetShardFnById(kubernetesClient))
 	} else {
 		log.Info("Sharding by cluster unique incrementing index algorthim")
-		clusterFilter = sharding.GetClusterFilter(kubernetesClient, sharding.GetShardFnByIndexPos(kubernetesClient, redisClient))
+		clusterFilter = sharding.GetClusterFilter(kubernetesClient, sharding.GetShardFnByIndexPos(namespace, settingsMgr, kubernetesClient))
 	}
 	return clusterFilter
 }
