@@ -114,6 +114,7 @@ require (
 require (
 	github.com/Masterminds/sprig/v3 v3.2.3
 	github.com/antonmedv/expr v1.9.0
+	github.com/buraksezer/consistent v0.10.0
 	github.com/coreos/go-oidc/v3 v3.4.0
 	github.com/go-redis/cache/v9 v9.0.0
 	github.com/robfig/cron/v3 v3.0.1
@@ -147,6 +148,7 @@ require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.1.3 // indirect
+	github.com/cespare/xxhash v1.1.0
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cloudflare/circl v1.1.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect

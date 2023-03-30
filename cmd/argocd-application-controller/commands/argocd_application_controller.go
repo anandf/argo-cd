@@ -17,6 +17,7 @@ import (
 	cmdutil "github.com/argoproj/argo-cd/v2/cmd/util"
 	"github.com/argoproj/argo-cd/v2/common"
 	"github.com/argoproj/argo-cd/v2/controller"
+	"github.com/argoproj/argo-cd/v2/controller/consistent"
 	"github.com/argoproj/argo-cd/v2/controller/sharding"
 	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	appclientset "github.com/argoproj/argo-cd/v2/pkg/client/clientset/versioned"
@@ -208,9 +209,12 @@ func getClusterFilter(namespace string, settingsMgr *settings.SettingsManager, k
 	if shardingAlgorthim == "SHARD_BY_CLUSTER_ID" {
 		log.Info("Sharding by cluster secret UUID algorthim")
 		clusterFilter = sharding.GetClusterFilter(kubernetesClient, sharding.GetShardFnById(kubernetesClient))
-	} else {
-		log.Info("Sharding by cluster unique incrementing index algorthim")
+	} else if shardingAlgorthim == "SHARD_BY_ROUND_ROBIN" {
+		log.Info("Sharding by cluster Round Robin algorthim")
 		clusterFilter = sharding.GetClusterFilter(kubernetesClient, sharding.GetShardFnByIndexPos(namespace, settingsMgr, kubernetesClient))
+	} else {
+		log.Info("Sharding by cluster placed on a consistent hash ring")
+		clusterFilter = consistent.GetClusterFilter(kubernetesClient)
 	}
 	return clusterFilter
 }
