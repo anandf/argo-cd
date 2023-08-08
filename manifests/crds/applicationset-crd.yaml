@@ -142,6 +142,8 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
+                                serviceAccountName:
+                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -729,6 +731,8 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
+                                serviceAccountName:
+                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -1320,6 +1324,8 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
+                                serviceAccountName:
+                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -1891,6 +1897,8 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
+                                serviceAccountName:
+                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -2486,6 +2494,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -3073,6 +3083,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -3664,6 +3676,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -4235,6 +4249,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -4816,6 +4832,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -5577,6 +5595,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -6333,6 +6353,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -6918,6 +6940,8 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
+                                serviceAccountName:
+                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -7513,6 +7537,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -8100,6 +8126,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -8691,6 +8719,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -9262,6 +9292,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -9843,6 +9875,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -10604,6 +10638,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -11360,6 +11396,8 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
+                                          serviceAccountName:
+                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -11949,6 +11987,8 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
+                                serviceAccountName:
+                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -12527,6 +12567,8 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
+                                serviceAccountName:
+                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -13288,6 +13330,8 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
+                                serviceAccountName:
+                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -14044,6 +14088,8 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
+                                serviceAccountName:
+                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -14704,6 +14750,8 @@ spec:
                       revisionHistoryLimit:
                         format: int64
                         type: integer
+                      serviceAccountName:
+                        type: string
                       source:
                         properties:
                           chart:

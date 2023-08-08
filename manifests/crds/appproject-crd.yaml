@@ -76,6 +76,10 @@ spec:
                   - kind
                   type: object
                 type: array
+              defaultServiceAccountName:
+                description: DefaultServiceAccount to be used for impersonation during
+                  the sync operation if none specified in Application
+                type: string
               description:
                 description: Description contains optional project description
                 type: string

@@ -83,6 +83,9 @@ type ApplicationSpec struct {
 
 	// Sources is a reference to the location of the application's manifests or chart
 	Sources ApplicationSources `json:"sources,omitempty" protobuf:"bytes,8,opt,name=sources"`
+
+	// ServiceAccountName to be used for impersonation during the sync operation
+	ServiceAccountName string `json:"serviceAccountName,omitempty" protobuf:"bytes,9,opt,name=serviceAccountName"`
 }
 
 type IgnoreDifferences []ResourceIgnoreDifferences
@@ -2203,6 +2206,9 @@ type AppProjectSpec struct {
 	SourceNamespaces []string `json:"sourceNamespaces,omitempty" protobuf:"bytes,12,opt,name=sourceNamespaces"`
 	// PermitOnlyProjectScopedClusters determines whether destinations can only reference clusters which are project-scoped
 	PermitOnlyProjectScopedClusters bool `json:"permitOnlyProjectScopedClusters,omitempty" protobuf:"bytes,13,opt,name=permitOnlyProjectScopedClusters"`
+
+	//DefaultServiceAccount to be used for impersonation during the sync operation if none specified in Application
+	DefaultServiceAccountName string `json:"defaultServiceAccountName,omitempty" protobuf:"bytes,14,opt,name=defaultServiceAccountName"`
 }
 
 // SyncWindows is a collection of sync windows in this project
