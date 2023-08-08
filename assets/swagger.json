@@ -5719,6 +5719,10 @@
             "$ref": "#/definitions/v1GroupKind"
           }
         },
+        "defaultServiceAccountName": {
+          "type": "string",
+          "title": "DefaultServiceAccount to be used for impersonation during the sync operation if none specified in Application"
+        },
         "description": {
           "type": "string",
           "title": "Description contains optional project description"
@@ -6477,6 +6481,10 @@
           "description": "RevisionHistoryLimit limits the number of items kept in the application's revision history, which is used for informational purposes as well as for rollbacks to previous versions.\nThis should only be changed in exceptional circumstances.\nSetting to zero will store no history. This will reduce storage used.\nIncreasing will increase the space used to store the history, so we do not recommend increasing it.\nDefault is 10.",
           "type": "string",
           "format": "int64"
+        },
+        "serviceAccountName": {
+          "type": "string",
+          "title": "ServiceAccountName to be used for impersonation during the sync operation"
         },
         "source": {
           "$ref": "#/definitions/v1alpha1ApplicationSource"

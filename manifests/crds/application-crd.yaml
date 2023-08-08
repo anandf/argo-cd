@@ -865,6 +865,10 @@ spec:
                   increasing it. Default is 10.
                 format: int64
                 type: integer
+              serviceAccountName:
+                description: ServiceAccountName to be used for impersonation during
+                  the sync operation
+                type: string
               source:
                 description: Source is a reference to the location of the application's
                   manifests or chart
