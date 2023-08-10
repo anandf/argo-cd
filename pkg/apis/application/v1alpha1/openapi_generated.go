@@ -457,13 +457,6 @@ func schema_pkg_apis_application_v1alpha1_AppProjectSpec(ref common.ReferenceCal
 							Format:      "",
 						},
 					},
-					"defaultServiceAccountName": {
-						SchemaProps: spec.SchemaProps{
-							Description: "DefaultServiceAccount to be used for impersonation during the sync operation if none specified in Application",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
 				},
 			},
 		},
@@ -617,6 +610,13 @@ func schema_pkg_apis_application_v1alpha1_ApplicationDestination(ref common.Refe
 					"name": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"serviceAccountName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ServiceAccountName to be used for impersonation during the sync operation",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -2029,13 +2029,6 @@ func schema_pkg_apis_application_v1alpha1_ApplicationSpec(ref common.ReferenceCa
 									},
 								},
 							},
-						},
-					},
-					"serviceAccountName": {
-						SchemaProps: spec.SchemaProps{
-							Description: "ServiceAccountName to be used for impersonation during the sync operation",
-							Type:        []string{"string"},
-							Format:      "",
 						},
 					},
 				},

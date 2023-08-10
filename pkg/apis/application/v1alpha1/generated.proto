@@ -90,9 +90,6 @@ message AppProjectSpec {
 
   // PermitOnlyProjectScopedClusters determines whether destinations can only reference clusters which are project-scoped
   optional bool permitOnlyProjectScopedClusters = 13;
-
-  // DefaultServiceAccount to be used for impersonation during the sync operation if none specified in Application
-  optional string defaultServiceAccountName = 14;
 }
 
 // AppProjectStatus contains status information for AppProject CRs
@@ -142,6 +139,9 @@ message ApplicationDestination {
 
   // Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.
   optional string name = 3;
+
+  // ServiceAccountName to be used for impersonation during the sync operation
+  optional string serviceAccountName = 4;
 }
 
 // ApplicationList is list of Application resources
@@ -559,9 +559,6 @@ message ApplicationSpec {
 
   // Sources is a reference to the location of the application's manifests or chart
   repeated ApplicationSource sources = 8;
-
-  // ServiceAccountName to be used for impersonation during the sync operation
-  optional string serviceAccountName = 9;
 }
 
 // ApplicationStatus contains status information for the application

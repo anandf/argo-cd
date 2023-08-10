@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -566,10 +568,10 @@ func setImpersonationConfig(cfg *rest.Config, app *v1alpha1.Application, proj *v
 		return
 	}
 	if enabled {
-		serviceAccountName := app.Spec.ServiceAccountName
+		serviceAccountName := app.Spec.Destination.ServiceAccountName
 		// if not set in Application, take the value set it AppProject
 		if serviceAccountName == "" {
-			serviceAccountName = proj.Spec.DefaultServiceAccountName
+			serviceAccountName = deriveServiceAccountName(proj, app)
 		}
 		// if not set in both Application and AppProject, use the default service account
 		if serviceAccountName == "" {
@@ -579,4 +581,43 @@ func setImpersonationConfig(cfg *rest.Config, app *v1alpha1.Application, proj *v
 			UserName: fmt.Sprintf(impersonateUserNameFormat, app.Namespace, serviceAccountName),
 		}
 	}
+}
+
+func deriveServiceAccountName(project *v1alpha1.AppProject, application *v1alpha1.Application) string {
+	serviceAccountName := ""
+
+	// Loop through the destinations and see if there is any destination that is an exact match
+	// if so, return the service account specified for that destination.
+	for _, destination := range project.Spec.Destinations {
+		if strings.Compare(destination.Name, application.Spec.Destination.Name) == 0 ||
+			strings.Compare(destination.Server, application.Spec.Destination.Server) == 0 {
+			return destination.ServiceAccountName
+		}
+	}
+
+	// Loop through the destinations and see if there is any regex pattern that matches
+	// if so, return the service account specified for that destination.
+	for _, destination := range project.Spec.Destinations {
+		if destination.Server != "" {
+			regex, err := regexp.Compile(destination.Server)
+			if err != nil {
+				log.Errorf("Error parsing regex pattern for destination server %s", destination.Server)
+				continue
+			}
+			if regex.Match([]byte(application.Spec.Destination.Server)) {
+				return destination.ServiceAccountName
+			}
+		}
+		if destination.Name != "" {
+			regex, err := regexp.Compile(destination.Name)
+			if err != nil {
+				log.Errorf("Error parsing regex pattern for destination name %s", destination.Name)
+				continue
+			}
+			if regex.Match([]byte(application.Spec.Destination.Name)) {
+				return destination.ServiceAccountName
+			}
+		}
+	}
+	return serviceAccountName
 }
