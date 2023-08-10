@@ -83,9 +83,6 @@ type ApplicationSpec struct {
 
 	// Sources is a reference to the location of the application's manifests or chart
 	Sources ApplicationSources `json:"sources,omitempty" protobuf:"bytes,8,opt,name=sources"`
-
-	// ServiceAccountName to be used for impersonation during the sync operation
-	ServiceAccountName string `json:"serviceAccountName,omitempty" protobuf:"bytes,9,opt,name=serviceAccountName"`
 }
 
 type IgnoreDifferences []ResourceIgnoreDifferences
@@ -915,6 +912,8 @@ type ApplicationDestination struct {
 	Namespace string `json:"namespace,omitempty" protobuf:"bytes,2,opt,name=namespace"`
 	// Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.
 	Name string `json:"name,omitempty" protobuf:"bytes,3,opt,name=name"`
+	// ServiceAccountName to be used for impersonation during the sync operation
+	ServiceAccountName string `json:"serviceAccountName,omitempty" protobuf:"bytes,4,opt,name=serviceAccountName"`
 
 	// nolint:govet
 	isServerInferred bool `json:"-"`
@@ -2206,9 +2205,6 @@ type AppProjectSpec struct {
 	SourceNamespaces []string `json:"sourceNamespaces,omitempty" protobuf:"bytes,12,opt,name=sourceNamespaces"`
 	// PermitOnlyProjectScopedClusters determines whether destinations can only reference clusters which are project-scoped
 	PermitOnlyProjectScopedClusters bool `json:"permitOnlyProjectScopedClusters,omitempty" protobuf:"bytes,13,opt,name=permitOnlyProjectScopedClusters"`
-
-	//DefaultServiceAccount to be used for impersonation during the sync operation if none specified in Application
-	DefaultServiceAccountName string `json:"defaultServiceAccountName,omitempty" protobuf:"bytes,14,opt,name=defaultServiceAccountName"`
 }
 
 // SyncWindows is a collection of sync windows in this project

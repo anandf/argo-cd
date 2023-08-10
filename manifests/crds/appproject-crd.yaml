@@ -76,10 +76,6 @@ spec:
                   - kind
                   type: object
                 type: array
-              defaultServiceAccountName:
-                description: DefaultServiceAccount to be used for impersonation during
-                  the sync operation if none specified in Application
-                type: string
               description:
                 description: Description contains optional project description
                 type: string
@@ -104,6 +100,10 @@ spec:
                       description: Server specifies the URL of the target cluster's
                         Kubernetes control plane API. This must be set if Name is
                         not set.
+                      type: string
+                    serviceAccountName:
+                      description: ServiceAccountName to be used for impersonation
+                        during the sync operation
                       type: string
                   type: object
                 type: array

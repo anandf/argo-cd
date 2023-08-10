@@ -886,7 +886,7 @@ spec:
         - -n
         - /usr/local/bin/argocd
         - /shared/argocd-dex
-        image: quay.io/argoproj/argocd:latest
+        image: quay.io/anjoseph/argocd:latest
         imagePullPolicy: Always
         name: copyutil
         securityContext:
@@ -1274,7 +1274,7 @@ spec:
           value: /helm-working-dir
         - name: HELM_DATA_HOME
           value: /helm-working-dir
-        image: quay.io/argoproj/argocd:latest
+        image: quay.io/anjoseph/argocd:latest
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3
@@ -1326,7 +1326,7 @@ spec:
         - -n
         - /usr/local/bin/argocd
         - /var/run/argocd/argocd-cmp-server
-        image: quay.io/argoproj/argocd:latest
+        image: quay.io/anjoseph/argocd:latest
         name: copyutil
         securityContext:
           allowPrivilegeEscalation: false

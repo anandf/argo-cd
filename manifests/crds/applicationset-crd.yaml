@@ -97,6 +97,8 @@ spec:
                                       type: string
                                     server:
                                       type: string
+                                    serviceAccountName:
+                                      type: string
                                   type: object
                                 ignoreDifferences:
                                   items:
@@ -142,8 +144,6 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
-                                serviceAccountName:
-                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -686,6 +686,8 @@ spec:
                                       type: string
                                     server:
                                       type: string
+                                    serviceAccountName:
+                                      type: string
                                   type: object
                                 ignoreDifferences:
                                   items:
@@ -731,8 +733,6 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
-                                serviceAccountName:
-                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -1279,6 +1279,8 @@ spec:
                                       type: string
                                     server:
                                       type: string
+                                    serviceAccountName:
+                                      type: string
                                   type: object
                                 ignoreDifferences:
                                   items:
@@ -1324,8 +1326,6 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
-                                serviceAccountName:
-                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -1852,6 +1852,8 @@ spec:
                                       type: string
                                     server:
                                       type: string
+                                    serviceAccountName:
+                                      type: string
                                   type: object
                                 ignoreDifferences:
                                   items:
@@ -1897,8 +1899,6 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
-                                serviceAccountName:
-                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -2449,6 +2449,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -2494,8 +2496,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -3038,6 +3038,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -3083,8 +3085,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -3631,6 +3631,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -3676,8 +3678,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -4204,6 +4204,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -4249,8 +4251,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -4787,6 +4787,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -4832,8 +4834,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -5550,6 +5550,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -5595,8 +5597,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -6308,6 +6308,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -6353,8 +6355,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -6895,6 +6895,8 @@ spec:
                                       type: string
                                     server:
                                       type: string
+                                    serviceAccountName:
+                                      type: string
                                   type: object
                                 ignoreDifferences:
                                   items:
@@ -6940,8 +6942,6 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
-                                serviceAccountName:
-                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -7492,6 +7492,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -7537,8 +7539,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -8081,6 +8081,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -8126,8 +8128,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -8674,6 +8674,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -8719,8 +8721,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -9247,6 +9247,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -9292,8 +9294,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -9830,6 +9830,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -9875,8 +9877,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -10593,6 +10593,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -10638,8 +10640,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -11351,6 +11351,8 @@ spec:
                                                 type: string
                                               server:
                                                 type: string
+                                              serviceAccountName:
+                                                type: string
                                             type: object
                                           ignoreDifferences:
                                             items:
@@ -11396,8 +11398,6 @@ spec:
                                           revisionHistoryLimit:
                                             format: int64
                                             type: integer
-                                          serviceAccountName:
-                                            type: string
                                           source:
                                             properties:
                                               chart:
@@ -11942,6 +11942,8 @@ spec:
                                       type: string
                                     server:
                                       type: string
+                                    serviceAccountName:
+                                      type: string
                                   type: object
                                 ignoreDifferences:
                                   items:
@@ -11987,8 +11989,6 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
-                                serviceAccountName:
-                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -12522,6 +12522,8 @@ spec:
                                       type: string
                                     server:
                                       type: string
+                                    serviceAccountName:
+                                      type: string
                                   type: object
                                 ignoreDifferences:
                                   items:
@@ -12567,8 +12569,6 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
-                                serviceAccountName:
-                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -13285,6 +13285,8 @@ spec:
                                       type: string
                                     server:
                                       type: string
+                                    serviceAccountName:
+                                      type: string
                                   type: object
                                 ignoreDifferences:
                                   items:
@@ -13330,8 +13332,6 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
-                                serviceAccountName:
-                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -14043,6 +14043,8 @@ spec:
                                       type: string
                                     server:
                                       type: string
+                                    serviceAccountName:
+                                      type: string
                                   type: object
                                 ignoreDifferences:
                                   items:
@@ -14088,8 +14090,6 @@ spec:
                                 revisionHistoryLimit:
                                   format: int64
                                   type: integer
-                                serviceAccountName:
-                                  type: string
                                 source:
                                   properties:
                                     chart:
@@ -14705,6 +14705,8 @@ spec:
                             type: string
                           server:
                             type: string
+                          serviceAccountName:
+                            type: string
                         type: object
                       ignoreDifferences:
                         items:
@@ -14750,8 +14752,6 @@ spec:
                       revisionHistoryLimit:
                         format: int64
                         type: integer
-                      serviceAccountName:
-                        type: string
                       source:
                         properties:
                           chart:
