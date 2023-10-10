@@ -18,7 +18,7 @@ spec:
       serviceAccountName: argocd-server
       containers:
       - name: argocd-server
-        image: quay.io/anjoseph/argocd:latest
+        image: quay.io/argoproj/argocd:latest
         imagePullPolicy: Always
         args:
           - /usr/local/bin/argocd-server
