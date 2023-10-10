@@ -3,7 +3,7 @@
 Remove project destination
 
 ```
-argocd proj remove-destination PROJECT SERVER NAMESPACE [flags]
+argocd proj remove-destination PROJECT SERVER NAMESPACE SERVICEACCOUNT [flags]
 ```
 
 ### Options
