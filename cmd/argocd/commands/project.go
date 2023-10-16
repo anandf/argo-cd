@@ -228,15 +228,15 @@ func NewProjectRemoveSignatureKeyCommand(clientOpts *argocdclient.ClientOptions)
 func NewProjectAddDestinationCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 	var nameInsteadServer bool
 
-	buildApplicationDestination := func(destination string, namespace string, nameInsteadServer bool) v1alpha1.ApplicationDestination {
+	buildApplicationDestination := func(destination string, namespace string, nameInsteadServer bool, serviceAccountName string) v1alpha1.ApplicationDestination {
 		if nameInsteadServer {
-			return v1alpha1.ApplicationDestination{Name: destination, Namespace: namespace}
+			return v1alpha1.ApplicationDestination{Name: destination, Namespace: namespace, ServiceAccountName: serviceAccountName}
 		}
-		return v1alpha1.ApplicationDestination{Server: destination, Namespace: namespace}
+		return v1alpha1.ApplicationDestination{Server: destination, Namespace: namespace, ServiceAccountName: serviceAccountName}
 	}
 
 	var command = &cobra.Command{
-		Use:   "add-destination PROJECT SERVER/NAME NAMESPACE",
+		Use:   "add-destination PROJECT SERVER/NAME NAMESPACE SERVICEACCOUNT",
 		Short: "Add project destination",
 		Run: func(c *cobra.Command, args []string) {
 			ctx := c.Context()
@@ -247,7 +247,8 @@ func NewProjectAddDestinationCommand(clientOpts *argocdclient.ClientOptions) *co
 			}
 			projName := args[0]
 			namespace := args[2]
-			destination := buildApplicationDestination(args[1], namespace, nameInsteadServer)
+			serviceAccountName := args[3]
+			destination := buildApplicationDestination(args[1], namespace, nameInsteadServer, serviceAccountName)
 			conn, projIf := headless.NewClientOrDie(clientOpts, c).NewProjectClientOrDie()
 			defer argoio.Close(conn)
 
@@ -273,7 +274,7 @@ func NewProjectAddDestinationCommand(clientOpts *argocdclient.ClientOptions) *co
 // NewProjectRemoveDestinationCommand returns a new instance of an `argocd proj remove-destination` command
 func NewProjectRemoveDestinationCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 	var command = &cobra.Command{
-		Use:   "remove-destination PROJECT SERVER NAMESPACE",
+		Use:   "remove-destination PROJECT SERVER NAMESPACE SERVICEACCOUNT",
 		Short: "Remove project destination",
 		Run: func(c *cobra.Command, args []string) {
 			ctx := c.Context()
@@ -285,6 +286,8 @@ func NewProjectRemoveDestinationCommand(clientOpts *argocdclient.ClientOptions) 
 			projName := args[0]
 			server := args[1]
 			namespace := args[2]
+			serviceAccountName := args[3]
+
 			conn, projIf := headless.NewClientOrDie(clientOpts, c).NewProjectClientOrDie()
 			defer argoio.Close(conn)
 
@@ -293,7 +296,7 @@ func NewProjectRemoveDestinationCommand(clientOpts *argocdclient.ClientOptions) 
 
 			index := -1
 			for i, dest := range proj.Spec.Destinations {
-				if dest.Namespace == namespace && dest.Server == server {
+				if dest.Namespace == namespace && dest.Server == server && dest.ServiceAccountName == serviceAccountName {
 					index = i
 					break
 				}
@@ -687,6 +690,9 @@ func printProjectLine(w io.Writer, p *v1alpha1.AppProject) {
 		destinations = "<none>"
 	case 1:
 		destinations = fmt.Sprintf("%s,%s", p.Spec.Destinations[0].Server, p.Spec.Destinations[0].Namespace)
+		if p.Spec.Destinations[0].ServiceAccountName != "" {
+			destinations = fmt.Sprintf("%s,%s", destinations, p.Spec.Destinations[0].ServiceAccountName)
+		}
 	default:
 		destinations = fmt.Sprintf("%d destinations", len(p.Spec.Destinations))
 	}
@@ -734,7 +740,12 @@ func printProject(p *v1alpha1.AppProject, scopedRepositories []*v1alpha1.Reposit
 	}
 	fmt.Printf(printProjFmtStr, "Destinations:", dest0)
 	for i := 1; i < len(p.Spec.Destinations); i++ {
-		fmt.Printf(printProjFmtStr, "", fmt.Sprintf("%s,%s", p.Spec.Destinations[i].Server, p.Spec.Destinations[i].Namespace))
+		destinations := fmt.Sprintf("%s,%s", p.Spec.Destinations[i].Server, p.Spec.Destinations[i].Namespace)
+		if p.Spec.Destinations[0].ServiceAccountName != "" {
+			destinations = fmt.Sprintf("%s,%s", destinations, p.Spec.Destinations[i].ServiceAccountName)
+		}
+		fmt.Printf(printProjFmtStr, "", destinations)
+
 	}
 
 	// Print sources
