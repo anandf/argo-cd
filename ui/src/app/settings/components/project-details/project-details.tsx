@@ -130,6 +130,7 @@ function reduceGlobal(projs: Project[]): ProjectSpec & {count: number} {
             signatureKeys: [],
             destinations: [],
             description: '',
+            serviceAccountName: '',
             roles: [],
             count: 0
         }
@@ -772,6 +773,7 @@ export class ProjectDetails extends React.Component<RouteComponentProps<{name: s
                                                     server: '*',
                                                     namespace: '*',
                                                     name: '*'
+                                                    serviceAccountName: '*'
                                                 })
                                             )
                                         }>
