@@ -37,7 +37,6 @@ export const ProjectRoleEditPanel = (props: ProjectRoleEditPanelProps) => {
                     projName: props.defaultParams.projName,
                     roleName: (props.defaultParams.role && props.defaultParams.role.name) || '',
                     description: (props.defaultParams.role && props.defaultParams.role.description) || '',
-                    serviceAccountName: (props.defaultParams.role && props.defaultParams.role.serviceAccountName) || '',
                     policies: (props.defaultParams.role && props.defaultParams.role.policies) || [],
                     jwtTokens: (props.defaultParams.role && props.defaultParams.jwtTokens) || [],
                     groups: (props.defaultParams.role && props.defaultParams.role.groups) || []
