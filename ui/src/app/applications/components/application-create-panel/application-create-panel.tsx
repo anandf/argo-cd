@@ -32,7 +32,7 @@ const DEFAULT_APP: Partial<models.Application> = {
         destination: {
             name: '',
             namespace: '',
-            server: '',
+            server: ''
         },
         source: {
             path: '',
