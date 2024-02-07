@@ -168,10 +168,12 @@ export interface ApplicationDestination {
      * Name of the destination cluster which can be used instead of server (url) field
      */
     name: string;
-    /**
-     * Name of the serviceAccountName 
-     */
-    serviceAccountName: string
+}
+
+export interface ApplicationDestinationServiceAccounts {
+    server: string;
+    namespace: string;
+    defaultServiceAccount: string;
 }
 
 export interface OrphanedResource {
@@ -692,7 +694,6 @@ export interface EventList extends ItemsList<Event> {}
 
 export interface ProjectRole {
     description: string;
-    serviceAccountName: string;
     policies: string[];
     name: string;
     groups: string[];
@@ -716,6 +717,7 @@ export interface ProjectSignatureKey {
 export interface ProjectSpec {
     sourceRepos: string[];
     destinations: ApplicationDestination[];
+    destinationServiceAccounts: ApplicationDestinationServiceAccounts[];
     description: string;
     roles: ProjectRole[];
     clusterResourceWhitelist: GroupKind[];

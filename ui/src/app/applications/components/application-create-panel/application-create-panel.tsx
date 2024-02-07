@@ -33,7 +33,6 @@ const DEFAULT_APP: Partial<models.Application> = {
             name: '',
             namespace: '',
             server: '',
-            serviceAccountName: ''
         },
         source: {
             path: '',
