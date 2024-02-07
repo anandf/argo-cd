@@ -170,6 +170,12 @@ export interface ApplicationDestination {
     name: string;
 }
 
+export interface ApplicationDestinationServiceAccounts {
+    server: string;
+    namespace: string;
+    defaultServiceAccount: string;
+}
+
 export interface OrphanedResource {
     group: string;
     kind: string;
@@ -711,6 +717,7 @@ export interface ProjectSignatureKey {
 export interface ProjectSpec {
     sourceRepos: string[];
     destinations: ApplicationDestination[];
+    destinationServiceAccounts: ApplicationDestinationServiceAccounts[];
     description: string;
     roles: ProjectRole[];
     clusterResourceWhitelist: GroupKind[];
