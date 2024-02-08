@@ -273,7 +273,7 @@ func NewProjectAddDestinationCommand(clientOpts *argocdclient.ClientOptions) *co
 	}
 
 	var command = &cobra.Command{
-		Use:   "add-destination PROJECT SERVER/NAME NAMESPACE",
+		Use:   "add-destination PROJECT SERVER/NAME NAMESPACE SERVICEACCOUNT",
 		Short: "Add project destination",
 		Example: templates.Examples(`
 			# Add project destination using a server URL (SERVER) in the specified namespace (NAMESPACE) on the project with name PROJECT
@@ -317,7 +317,7 @@ func NewProjectAddDestinationCommand(clientOpts *argocdclient.ClientOptions) *co
 // NewProjectRemoveDestinationCommand returns a new instance of an `argocd proj remove-destination` command
 func NewProjectRemoveDestinationCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 	var command = &cobra.Command{
-		Use:   "remove-destination PROJECT SERVER NAMESPACE",
+		Use:   "remove-destination PROJECT SERVER NAMESPACE SERVICEACCOUNT",
 		Short: "Remove project destination",
 		Example: templates.Examples(`
 			# Remove the destination (SERVER) from the specified namespace (NAMESPACE) on the project with name PROJECT
@@ -333,6 +333,7 @@ func NewProjectRemoveDestinationCommand(clientOpts *argocdclient.ClientOptions) 
 			projName := args[0]
 			server := args[1]
 			namespace := args[2]
+
 			conn, projIf := headless.NewClientOrDie(clientOpts, c).NewProjectClientOrDie()
 			defer argoio.Close(conn)
 
@@ -832,7 +833,8 @@ func printProject(p *v1alpha1.AppProject, scopedRepositories []*v1alpha1.Reposit
 	}
 	fmt.Printf(printProjFmtStr, "Destinations:", dest0)
 	for i := 1; i < len(p.Spec.Destinations); i++ {
-		fmt.Printf(printProjFmtStr, "", fmt.Sprintf("%s,%s", p.Spec.Destinations[i].Server, p.Spec.Destinations[i].Namespace))
+		destinations := fmt.Sprintf("%s,%s", p.Spec.Destinations[i].Server, p.Spec.Destinations[i].Namespace)
+		fmt.Printf(printProjFmtStr, "", destinations)
 	}
 
 	// Print sources
