@@ -5,7 +5,9 @@ import (
 	goerrors "errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/managedfields"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/util/openapi"
 
 	"github.com/argoproj/argo-cd/v2/controller/metrics"
@@ -40,6 +43,8 @@ const (
 	// EnvVarSyncWaveDelay is an environment variable which controls the delay in seconds between
 	// each sync-wave
 	EnvVarSyncWaveDelay = "ARGOCD_SYNC_WAVE_DELAY"
+
+	EnvImpersonationFeatureFlag = "ARGOCD_APPLICATION_CONTROLLER_ENABLE_IMPERSONATION"
 )
 
 func (m *appStateManager) getOpenAPISchema(server string) (openapi.Resources, error) {
@@ -213,7 +218,9 @@ func (m *appStateManager) SyncAppState(app *v1alpha1.Application, state *v1alpha
 
 	rawConfig := clst.RawRestConfig()
 	restConfig := metrics.AddMetricsTransportWrapper(m.metricsServer, app, clst.RESTConfig())
-
+	setImpersonationConfig(rawConfig, app, proj)
+	setImpersonationConfig(restConfig, app, proj)
+	log.Info("Using impersonated service account system:serviceaccount:argocd:testadmin for the sync operation")
 	resourceOverrides, err := m.settingsMgr.GetResourceOverrides()
 	if err != nil {
 		state.Phase = common.OperationError
@@ -538,4 +545,61 @@ func syncWindowPreventsSync(app *v1alpha1.Application, proj *v1alpha1.AppProject
 		isManual = !app.Status.OperationState.Operation.InitiatedBy.Automated
 	}
 	return !window.CanSync(isManual)
+}
+
+const impersonateUserNameFormat = "system:serviceaccount:%s:%s"
+const defaultServiceAccountName = "default"
+
+// setImpersonationConfig sets the impersonation config if the feature is enabled via environment variable explicitly.
+func setImpersonationConfig(cfg *rest.Config, app *v1alpha1.Application, proj *v1alpha1.AppProject) {
+	envValue, ok := os.LookupEnv(EnvImpersonationFeatureFlag)
+	if !ok {
+		log.Info("Skipping Impersonation config as environment variable is not set")
+		return
+	}
+	enabled, err := strconv.ParseBool(envValue)
+	if err != nil {
+		log.Info("Skipping Impersonation config as it is not enabled")
+		return
+	}
+	if enabled {
+		serviceAccountName := "default"
+		// if not set in Application, take the value set it AppProject
+		if serviceAccountName == "" {
+			serviceAccountName = deriveServiceAccountName(proj, app)
+		}
+		// if not set in both Application and AppProject, use the default service account
+		if serviceAccountName == "" {
+			serviceAccountName = defaultServiceAccountName
+		}
+		cfg.Impersonate = rest.ImpersonationConfig{
+			UserName: fmt.Sprintf(impersonateUserNameFormat, app.Namespace, serviceAccountName),
+		}
+	}
+}
+
+func deriveServiceAccountName(project *v1alpha1.AppProject, application *v1alpha1.Application) string {
+	serviceAccountName := ""
+
+	// Loop through the destinations and see if there is any destination that is an exact match
+	// if so, return the service account specified for that destination.
+	for _, destinationServiceAccount := range project.Spec.DestinationServiceAccounts {
+		if strings.Compare(destinationServiceAccount.Server, application.Spec.Destination.Server) == 0 {
+			return destinationServiceAccount.DefaultServiceAccount
+		}
+	}
+
+	// Loop through the destinations and see if there is any regex pattern that matches
+	// if so, return the service account specified for that destination.
+	for _, destinationServiceAccount := range project.Spec.DestinationServiceAccounts {
+		regex, err := regexp.Compile(destinationServiceAccount.Server)
+		if err != nil {
+			log.Errorf("Error parsing regex pattern for destination server %s", destinationServiceAccount.Server)
+			continue
+		}
+		if regex.Match([]byte(application.Spec.Destination.Server)) {
+			return destinationServiceAccount.DefaultServiceAccount
+		}
+	}
+	return serviceAccountName
 }
