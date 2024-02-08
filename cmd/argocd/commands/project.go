@@ -333,7 +333,6 @@ func NewProjectRemoveDestinationCommand(clientOpts *argocdclient.ClientOptions) 
 			projName := args[0]
 			server := args[1]
 			namespace := args[2]
-
 			conn, projIf := headless.NewClientOrDie(clientOpts, c).NewProjectClientOrDie()
 			defer argoio.Close(conn)
 
