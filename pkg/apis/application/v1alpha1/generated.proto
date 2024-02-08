@@ -94,7 +94,10 @@ message AppProjectSpec {
   // PermitOnlyProjectScopedClusters determines whether destinations can only reference clusters which are project-scoped
   optional bool permitOnlyProjectScopedClusters = 13;
 
+<<<<<<< HEAD
   // DestinationServiceAccounts holds information about the service accounts to be impersonated for the application sync operation for each destination.
+=======
+>>>>>>> 99e109d34 (Changes for new DestinationServiceAccount changes in AppProject)
   repeated ApplicationDestinationServiceAccount destinationServiceAccounts = 14;
 }
 
