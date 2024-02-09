@@ -472,7 +472,8 @@ func schema_pkg_apis_application_v1alpha1_AppProjectSpec(ref common.ReferenceCal
 					},
 					"destinationServiceAccounts": {
 						SchemaProps: spec.SchemaProps{
-							Type: []string{"array"},
+							Description: "DestinationServiceAccounts holds information about the service accounts to be impersonated for the application sync operation for each destination.",
+							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
@@ -656,6 +657,13 @@ func schema_pkg_apis_application_v1alpha1_ApplicationDestinationServiceAccount(r
 					"server": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Server specifies the URL of the target cluster's Kubernetes control plane API. This must be set if Name is not set.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.",
 							Type:        []string{"string"},
 							Format:      "",
 						},

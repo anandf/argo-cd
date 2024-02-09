@@ -78,6 +78,8 @@ func NewProjectCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 	command.AddCommand(NewProjectWindowsCommand(clientOpts))
 	command.AddCommand(NewProjectAddOrphanedIgnoreCommand(clientOpts))
 	command.AddCommand(NewProjectRemoveOrphanedIgnoreCommand(clientOpts))
+	command.AddCommand(NewProjectAddDestinationServiceAccountCommand(clientOpts))
+	command.AddCommand(NewProjectRemoveDestinationServiceAccountCommand(clientOpts))
 	return command
 }
 
@@ -997,5 +999,106 @@ func NewProjectEditCommand(clientOpts *argocdclient.ClientOptions) *cobra.Comman
 			})
 		},
 	}
+	return command
+}
+
+// NewProjectAddDestinationServiceAccountCommand returns a new instance of an `argocd proj add-destination-service-account` command
+func NewProjectAddDestinationServiceAccountCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
+	var nameInsteadServer bool
+
+	buildApplicationDestinationServiceAccount := func(destination string, namespace string, serviceAccount string, nameInsteadServer bool) v1alpha1.ApplicationDestinationServiceAccount {
+		if nameInsteadServer {
+			return v1alpha1.ApplicationDestinationServiceAccount{Name: destination, Namespace: namespace}
+		}
+		return v1alpha1.ApplicationDestinationServiceAccount{Server: destination, Namespace: namespace}
+	}
+
+	var command = &cobra.Command{
+		Use:   "add-destination-service-account PROJECT SERVER/NAME NAMESPACE",
+		Short: "Add project destination's default service account",
+		Example: templates.Examples(`
+			# Add project destination using a server URL (SERVER) in the specified namespace (NAMESPACE) on the project with name PROJECT
+			argocd proj add-destination-service-account PROJECT SERVER NAMESPACE SERVICE_ACCOUNT
+
+			# Add project destination using a server name (NAME) in the specified namespace (NAMESPACE) on the project with name PROJECT
+			argocd proj add-destination-service-account PROJECT NAME NAMESPACE SERVICE_ACCOUNT --name
+		`),
+		Run: func(c *cobra.Command, args []string) {
+			ctx := c.Context()
+
+			if len(args) != 3 {
+				c.HelpFunc()(c, args)
+				os.Exit(1)
+			}
+			projName := args[0]
+			namespace := args[2]
+			serviceAccount := args[3]
+			destinationServiceAccount := buildApplicationDestinationServiceAccount(args[1], namespace, serviceAccount, nameInsteadServer)
+			conn, projIf := headless.NewClientOrDie(clientOpts, c).NewProjectClientOrDie()
+			defer argoio.Close(conn)
+
+			proj, err := projIf.Get(ctx, &projectpkg.ProjectQuery{Name: projName})
+			errors.CheckError(err)
+
+			for _, dest := range proj.Spec.DestinationServiceAccounts {
+				dstServerExist := destinationServiceAccount.Server != "" && dest.Server == destinationServiceAccount.Server
+				dstNameExist := destinationServiceAccount.Name != "" && dest.Name == destinationServiceAccount.Name
+				dstServiceAccountExist := destinationServiceAccount.DefaultServiceAccount != "" && dest.DefaultServiceAccount == destinationServiceAccount.DefaultServiceAccount
+				if dest.Namespace == destinationServiceAccount.Namespace && (dstServerExist || dstNameExist) && dstServiceAccountExist {
+					log.Fatal("Specified destination service account is already defined in project")
+				}
+			}
+			proj.Spec.DestinationServiceAccounts = append(proj.Spec.DestinationServiceAccounts, destinationServiceAccount)
+			_, err = projIf.Update(ctx, &projectpkg.ProjectUpdateRequest{Project: proj})
+			errors.CheckError(err)
+		},
+	}
+	command.Flags().BoolVar(&nameInsteadServer, "name", false, "Use name as destination instead of server")
+	return command
+}
+
+// NewProjectRemoveDestinationCommand returns a new instance of an `argocd proj remove-destination-service-account` command
+func NewProjectRemoveDestinationServiceAccountCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
+	var command = &cobra.Command{
+		Use:   "remove-destination-service-account PROJECT SERVER NAMESPACE SERVICE_ACCOUNT",
+		Short: "Remove default destination service account from the project",
+		Example: templates.Examples(`
+			# Remove the destination service account (SERVICE_ACCOUNT) from the specified destination (SERVER and NAMESPACE combination) on the project with name PROJECT
+			argocd proj remove-destination-service-account PROJECT SERVER NAMESPACE SERVICE_ACCOUNT
+		`),
+		Run: func(c *cobra.Command, args []string) {
+			ctx := c.Context()
+
+			if len(args) != 3 {
+				c.HelpFunc()(c, args)
+				os.Exit(1)
+			}
+			projName := args[0]
+			server := args[1]
+			namespace := args[2]
+			serviceAccount := args[3]
+			conn, projIf := headless.NewClientOrDie(clientOpts, c).NewProjectClientOrDie()
+			defer argoio.Close(conn)
+
+			proj, err := projIf.Get(ctx, &projectpkg.ProjectQuery{Name: projName})
+			errors.CheckError(err)
+
+			index := -1
+			for i, dest := range proj.Spec.DestinationServiceAccounts {
+				if dest.Namespace == namespace && dest.Server == server && dest.DefaultServiceAccount == serviceAccount {
+					index = i
+					break
+				}
+			}
+			if index == -1 {
+				log.Fatal("Specified destination service account does not exist in project")
+			} else {
+				proj.Spec.Destinations = append(proj.Spec.Destinations[:index], proj.Spec.Destinations[index+1:]...)
+				_, err = projIf.Update(ctx, &projectpkg.ProjectUpdateRequest{Project: proj})
+				errors.CheckError(err)
+			}
+		},
+	}
+
 	return command
 }

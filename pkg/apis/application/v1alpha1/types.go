@@ -2202,8 +2202,9 @@ type AppProjectSpec struct {
 	// SourceNamespaces defines the namespaces application resources are allowed to be created in
 	SourceNamespaces []string `json:"sourceNamespaces,omitempty" protobuf:"bytes,12,opt,name=sourceNamespaces"`
 	// PermitOnlyProjectScopedClusters determines whether destinations can only reference clusters which are project-scoped
-	PermitOnlyProjectScopedClusters bool                                   `json:"permitOnlyProjectScopedClusters,omitempty" protobuf:"bytes,13,opt,name=permitOnlyProjectScopedClusters"`
-	DestinationServiceAccounts      []ApplicationDestinationServiceAccount `json:"destinationServiceAccounts,omitempty" protobuf:"bytes,14,name=destinationServiceAccounts"`
+	PermitOnlyProjectScopedClusters bool `json:"permitOnlyProjectScopedClusters,omitempty" protobuf:"bytes,13,opt,name=permitOnlyProjectScopedClusters"`
+	// DestinationServiceAccounts holds information about the service accounts to be impersonated for the application sync operation for each destination.
+	DestinationServiceAccounts []ApplicationDestinationServiceAccount `json:"destinationServiceAccounts,omitempty" protobuf:"bytes,14,name=destinationServiceAccounts"`
 }
 
 // SyncWindows is a collection of sync windows in this project
@@ -2633,11 +2634,13 @@ type KustomizeOptions struct {
 type ApplicationDestinationServiceAccount struct {
 	// Server specifies the URL of the target cluster's Kubernetes control plane API. This must be set if Name is not set.
 	Server string `json:"server,omitempty" protobuf:"bytes,1,opt,name=server"`
+	// Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.
+	Name string `json:"name,omitempty" protobuf:"bytes,2,opt,name=name"`
 	// Namespace specifies the target namespace for the application's resources.
 	// The namespace will only be set for namespace-scoped resources that have not set a value for .metadata.namespace
-	Namespace string `json:"namespace,omitempty" protobuf:"bytes,2,opt,name=namespace"`
+	Namespace string `json:"namespace,omitempty" protobuf:"bytes,3,opt,name=namespace"`
 	// ServiceAccountName to be used for impersonation during the sync operation
-	DefaultServiceAccount string `json:"defaultServiceAccount,omitempty" protobuf:"bytes,3,opt,name=defaultServiceAccount"`
+	DefaultServiceAccount string `json:"defaultServiceAccount,omitempty" protobuf:"bytes,4,opt,name=defaultServiceAccount"`
 }
 
 // CascadedDeletion indicates if the deletion finalizer is set and controller should delete the application and it's cascaded resources

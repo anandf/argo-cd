@@ -80,6 +80,9 @@ spec:
                 description: Description contains optional project description
                 type: string
               destinationServiceAccounts:
+                description: DestinationServiceAccounts holds information about the
+                  service accounts to be impersonated for the application sync operation
+                  for each destination.
                 items:
                   description: ApplicationDestinationServiceAccount holds information
                     about the service account to be impersonated for the application
@@ -88,6 +91,11 @@ spec:
                     defaultServiceAccount:
                       description: ServiceAccountName to be used for impersonation
                         during the sync operation
+                      type: string
+                    name:
+                      description: Name is an alternate way of specifying the target
+                        cluster by its symbolic name. This must be set if Server is
+                        not set.
                       type: string
                     namespace:
                       description: Namespace specifies the target namespace for the
