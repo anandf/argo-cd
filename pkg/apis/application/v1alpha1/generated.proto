@@ -152,15 +152,12 @@ message ApplicationDestinationServiceAccount {
   // Server specifies the URL of the target cluster's Kubernetes control plane API. This must be set if Name is not set.
   optional string server = 1;
 
-  // Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.
-  optional string name = 2;
-
   // Namespace specifies the target namespace for the application's resources.
   // The namespace will only be set for namespace-scoped resources that have not set a value for .metadata.namespace
-  optional string namespace = 3;
+  optional string namespace = 2;
 
   // ServiceAccountName to be used for impersonation during the sync operation
-  optional string defaultServiceAccount = 4;
+  optional string defaultServiceAccount = 3;
 }
 
 // ApplicationList is list of Application resources

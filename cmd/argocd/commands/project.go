@@ -1004,12 +1004,8 @@ func NewProjectEditCommand(clientOpts *argocdclient.ClientOptions) *cobra.Comman
 
 // NewProjectAddDestinationServiceAccountCommand returns a new instance of an `argocd proj add-destination-service-account` command
 func NewProjectAddDestinationServiceAccountCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
-	var nameInsteadServer bool
 
-	buildApplicationDestinationServiceAccount := func(destination string, namespace string, serviceAccount string, nameInsteadServer bool) v1alpha1.ApplicationDestinationServiceAccount {
-		if nameInsteadServer {
-			return v1alpha1.ApplicationDestinationServiceAccount{Name: destination, Namespace: namespace}
-		}
+	buildApplicationDestinationServiceAccount := func(destination string, namespace string, serviceAccount string) v1alpha1.ApplicationDestinationServiceAccount {
 		return v1alpha1.ApplicationDestinationServiceAccount{Server: destination, Namespace: namespace}
 	}
 
@@ -1019,9 +1015,6 @@ func NewProjectAddDestinationServiceAccountCommand(clientOpts *argocdclient.Clie
 		Example: templates.Examples(`
 			# Add project destination using a server URL (SERVER) in the specified namespace (NAMESPACE) on the project with name PROJECT
 			argocd proj add-destination-service-account PROJECT SERVER NAMESPACE SERVICE_ACCOUNT
-
-			# Add project destination using a server name (NAME) in the specified namespace (NAMESPACE) on the project with name PROJECT
-			argocd proj add-destination-service-account PROJECT NAME NAMESPACE SERVICE_ACCOUNT --name
 		`),
 		Run: func(c *cobra.Command, args []string) {
 			ctx := c.Context()
@@ -1033,7 +1026,7 @@ func NewProjectAddDestinationServiceAccountCommand(clientOpts *argocdclient.Clie
 			projName := args[0]
 			namespace := args[2]
 			serviceAccount := args[3]
-			destinationServiceAccount := buildApplicationDestinationServiceAccount(args[1], namespace, serviceAccount, nameInsteadServer)
+			destinationServiceAccount := buildApplicationDestinationServiceAccount(args[1], namespace, serviceAccount)
 			conn, projIf := headless.NewClientOrDie(clientOpts, c).NewProjectClientOrDie()
 			defer argoio.Close(conn)
 
@@ -1042,9 +1035,8 @@ func NewProjectAddDestinationServiceAccountCommand(clientOpts *argocdclient.Clie
 
 			for _, dest := range proj.Spec.DestinationServiceAccounts {
 				dstServerExist := destinationServiceAccount.Server != "" && dest.Server == destinationServiceAccount.Server
-				dstNameExist := destinationServiceAccount.Name != "" && dest.Name == destinationServiceAccount.Name
 				dstServiceAccountExist := destinationServiceAccount.DefaultServiceAccount != "" && dest.DefaultServiceAccount == destinationServiceAccount.DefaultServiceAccount
-				if dest.Namespace == destinationServiceAccount.Namespace && (dstServerExist || dstNameExist) && dstServiceAccountExist {
+				if dest.Namespace == destinationServiceAccount.Namespace && dstServerExist && dstServiceAccountExist {
 					log.Fatal("Specified destination service account is already defined in project")
 				}
 			}
@@ -1053,7 +1045,6 @@ func NewProjectAddDestinationServiceAccountCommand(clientOpts *argocdclient.Clie
 			errors.CheckError(err)
 		},
 	}
-	command.Flags().BoolVar(&nameInsteadServer, "name", false, "Use name as destination instead of server")
 	return command
 }
 

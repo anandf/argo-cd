@@ -20290,11 +20290,6 @@ spec:
                       description: ServiceAccountName to be used for impersonation
                         during the sync operation
                       type: string
-                    name:
-                      description: Name is an alternate way of specifying the target
-                        cluster by its symbolic name. This must be set if Server is
-                        not set.
-                      type: string
                     namespace:
                       description: Namespace specifies the target namespace for the
                         application's resources. The namespace will only be set for

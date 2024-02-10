@@ -661,13 +661,6 @@ func schema_pkg_apis_application_v1alpha1_ApplicationDestinationServiceAccount(r
 							Format:      "",
 						},
 					},
-					"name": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
 					"namespace": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Namespace specifies the target namespace for the application's resources. The namespace will only be set for namespace-scoped resources that have not set a value for .metadata.namespace",

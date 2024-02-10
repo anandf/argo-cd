@@ -5872,10 +5872,6 @@
           "type": "string",
           "title": "ServiceAccountName to be used for impersonation during the sync operation"
         },
-        "name": {
-          "description": "Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.",
-          "type": "string"
-        },
         "namespace": {
           "type": "string",
           "title": "Namespace specifies the target namespace for the application's resources.\nThe namespace will only be set for namespace-scoped resources that have not set a value for .metadata.namespace"

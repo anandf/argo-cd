@@ -13,16 +13,12 @@ argocd proj add-destination-service-account PROJECT SERVER/NAME NAMESPACE [flags
 ```
   # Add project destination using a server URL (SERVER) in the specified namespace (NAMESPACE) on the project with name PROJECT
   argocd proj add-destination-service-account PROJECT SERVER NAMESPACE SERVICE_ACCOUNT
-  
-  # Add project destination using a server name (NAME) in the specified namespace (NAMESPACE) on the project with name PROJECT
-  argocd proj add-destination-service-account PROJECT NAME NAMESPACE SERVICE_ACCOUNT --name
 ```
 
 ### Options
 
 ```
   -h, --help   help for add-destination-service-account
-      --name   Use name as destination instead of server
 ```
 
 ### Options inherited from parent commands
