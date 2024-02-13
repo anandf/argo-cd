@@ -13,6 +13,9 @@ argocd proj add-destination-service-account PROJECT SERVER NAMESPACE SERVICE_ACC
 ```
   # Add project destination service account (SERVICE_ACCOUNT) for a server URL (SERVER) in the specified namespace (NAMESPACE) on the project with name PROJECT
   argocd proj add-destination-service-account PROJECT SERVER NAMESPACE SERVICE_ACCOUNT
+  
+  # Add project destination service account (SERVICE_ACCOUNT) from a different namespace
+  argocd proj add-destination PROJECT SERVER NAMESPACE SERVICE_ACCOUNT --service-account-namespace <service_account_namespace>
 ```
 
 ### Options
