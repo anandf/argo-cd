@@ -724,7 +724,7 @@ func printProjectNames(projects []v1alpha1.AppProject) {
 // Print table of project info
 func printProjectTable(projects []v1alpha1.AppProject) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "NAME\tDESCRIPTION\tDESTINATIONS\tSOURCES\tCLUSTER-RESOURCE-WHITELIST\tNAMESPACE-RESOURCE-BLACKLIST\tSIGNATURE-KEYS\tORPHANED-RESOURCES\n")
+	fmt.Fprintf(w, "NAME\tDESCRIPTION\tDESTINATIONS\tSOURCES\tCLUSTER-RESOURCE-WHITELIST\tNAMESPACE-RESOURCE-BLACKLIST\tSIGNATURE-KEYS\tORPHANED-RESOURCES\tDESTINATION-SERVICE-ACCOUNTS\n")
 	for _, p := range projects {
 		printProjectLine(w, &p)
 	}
@@ -782,7 +782,7 @@ func formatOrphanedResources(p *v1alpha1.AppProject) string {
 }
 
 func printProjectLine(w io.Writer, p *v1alpha1.AppProject) {
-	var destinations, sourceRepos, clusterWhitelist, namespaceBlacklist, signatureKeys string
+	var destinations, destinationServiceAccounts, sourceRepos, clusterWhitelist, namespaceBlacklist, signatureKeys string
 	switch len(p.Spec.Destinations) {
 	case 0:
 		destinations = "<none>"
@@ -790,6 +790,14 @@ func printProjectLine(w io.Writer, p *v1alpha1.AppProject) {
 		destinations = fmt.Sprintf("%s,%s", p.Spec.Destinations[0].Server, p.Spec.Destinations[0].Namespace)
 	default:
 		destinations = fmt.Sprintf("%d destinations", len(p.Spec.Destinations))
+	}
+	switch len(p.Spec.DestinationServiceAccounts) {
+	case 0:
+		destinationServiceAccounts = "<none>"
+	case 1:
+		destinationServiceAccounts = fmt.Sprintf("%s,%s,%s", p.Spec.DestinationServiceAccounts[0].Server, p.Spec.DestinationServiceAccounts[0].Namespace, p.Spec.DestinationServiceAccounts[0].DefaultServiceAccount)
+	default:
+		destinationServiceAccounts = fmt.Sprintf("%d destinationServiceAccounts", len(p.Spec.DestinationServiceAccounts))
 	}
 	switch len(p.Spec.SourceRepos) {
 	case 0:
@@ -819,7 +827,7 @@ func printProjectLine(w io.Writer, p *v1alpha1.AppProject) {
 	default:
 		signatureKeys = fmt.Sprintf("%d key(s)", len(p.Spec.SignatureKeys))
 	}
-	fmt.Fprintf(w, "%s\t%s\t%v\t%v\t%v\t%v\t%v\t%v\n", p.Name, p.Spec.Description, destinations, sourceRepos, clusterWhitelist, namespaceBlacklist, signatureKeys, formatOrphanedResources(p))
+	fmt.Fprintf(w, "%s\t%s\t%v\t%v\t%v\t%v\t%v\t%v\t%v\n", p.Name, p.Spec.Description, destinations, sourceRepos, clusterWhitelist, namespaceBlacklist, signatureKeys, formatOrphanedResources(p), destinationServiceAccounts)
 }
 
 func printProject(p *v1alpha1.AppProject, scopedRepositories []*v1alpha1.Repository, scopedClusters []*v1alpha1.Cluster) {
@@ -900,6 +908,16 @@ func printProject(p *v1alpha1.AppProject, scopedRepositories []*v1alpha1.Reposit
 	fmt.Printf(printProjFmtStr, "Signature keys:", signatureKeysStr)
 
 	fmt.Printf(printProjFmtStr, "Orphaned Resources:", formatOrphanedResources(p))
+
+	// Print DestinationServiceAccounts
+	destServiceAccounts := "<none>"
+	if len(p.Spec.DestinationServiceAccounts) > 0 {
+		destServiceAccounts = fmt.Sprintf("%s,%s,%s", p.Spec.DestinationServiceAccounts[0].Server, p.Spec.DestinationServiceAccounts[0].Namespace, p.Spec.DestinationServiceAccounts[0].DefaultServiceAccount)
+	}
+	fmt.Printf(printProjFmtStr, "DestinationServiceAccounts:", destServiceAccounts)
+	for i := 1; i < len(p.Spec.Destinations); i++ {
+		fmt.Printf(printProjFmtStr, "", fmt.Sprintf("%s,%s", p.Spec.DestinationServiceAccounts[i].Server, p.Spec.DestinationServiceAccounts[i].Namespace, p.Spec.DestinationServiceAccounts[i].DefaultServiceAccount))
+	}
 
 }
 
