@@ -5,20 +5,21 @@
 Add project destination's default service account
 
 ```
-argocd proj add-destination-service-account PROJECT SERVER/NAME NAMESPACE [flags]
+argocd proj add-destination-service-account PROJECT SERVER NAMESPACE SERVICE_ACCOUNT [flags]
 ```
 
 ### Examples
 
 ```
-  # Add project destination using a server URL (SERVER) in the specified namespace (NAMESPACE) on the project with name PROJECT
+  # Add project destination service account (SERVICE_ACCOUNT) for a server URL (SERVER) in the specified namespace (NAMESPACE) on the project with name PROJECT
   argocd proj add-destination-service-account PROJECT SERVER NAMESPACE SERVICE_ACCOUNT
 ```
 
 ### Options
 
 ```
-  -h, --help   help for add-destination-service-account
+  -h, --help                               help for add-destination-service-account
+      --service-account-namespace string   Use service-account-namespace as namespace where the service account is present
 ```
 
 ### Options inherited from parent commands
