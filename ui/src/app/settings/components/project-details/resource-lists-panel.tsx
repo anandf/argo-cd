@@ -167,7 +167,7 @@ function viewDestinationsInfoList(type: field, proj: Project) {
 const destinationServiceAccountsInfoByField: {[type: string]: {title: string; helpText: string}} = {
     destinationServiceAccounts: {
         title: 'destination service accounts',
-        helpText: 'Server, namespace, defaultServiceAccount to define the impersonation configuration and synchronize operations'
+        helpText: 'DestinationServiceAccounts holds information about the service accounts to be impersonated for the application sync operation for each destination.'
     }
 };
 

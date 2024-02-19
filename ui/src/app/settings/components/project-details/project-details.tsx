@@ -816,7 +816,7 @@ export class ProjectDetails extends React.Component<RouteComponentProps<{name: s
                     values={proj}
                     title={
                         <React.Fragment>
-                            DESTINATION SERVICE ACCOUNTS {helpTip('Server, namespace, defaultServiceAccount to define the impersonation configuration and synchronize operations')}
+                            DESTINATION SERVICE ACCOUNTS {helpTip('Destination Service Accounts holds information about the service accounts to be impersonated for the application sync operation for each destination.')}
                         </React.Fragment>
                     }
                     view={
@@ -837,7 +837,7 @@ export class ProjectDetails extends React.Component<RouteComponentProps<{name: s
                                     ))}
                                 </React.Fragment>
                             ) : (
-                                emptyMessage('defaultServiceAccount')
+                                emptyMessage('destinationServiceAccount')
                             )}
                         </React.Fragment>
                     }
@@ -860,10 +860,10 @@ export class ProjectDetails extends React.Component<RouteComponentProps<{name: s
                                                     componentProps={{items: clusters.map(cluster => cluster.server)}}
                                                 />
                                             </div>
-                                            <div className='columns small-5'>
+                                            <div className='columns small-3'>
                                                 <FormField formApi={formApi} field={`spec.destinationServiceAccounts[${i}].namespace`} component={AutocompleteField} />
                                             </div>
-                                            <div className='columns small-3'>
+                                            <div className='columns small-5'>
                                                 <FormField
                                                     formApi={formApi}
                                                     field={`spec.destinationServiceAccounts[${i}].defaultServiceAccount`}
@@ -877,6 +877,7 @@ export class ProjectDetails extends React.Component<RouteComponentProps<{name: s
                                             />
                                         </div>
                                     ))}
+                                    
                                     <button
                                         className='argo-button argo-button--short'
                                         onClick={() =>
