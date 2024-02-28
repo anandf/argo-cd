@@ -72,6 +72,7 @@ func NewCommand() *cobra.Command {
 		shardingAlgorithm                string
 		enableDynamicClusterDistribution bool
 		serverSideDiff                   bool
+		shardPerNs                       bool
 	)
 	var command = cobra.Command{
 		Use:               cliName,
@@ -169,6 +170,7 @@ func NewCommand() *cobra.Command {
 				&workqueueRateLimit,
 				serverSideDiff,
 				enableDynamicClusterDistribution,
+				shardPerNs,
 			)
 			errors.CheckError(err)
 			cacheutil.CollectMetrics(redisClient, appController.GetMetricsServer())
@@ -209,6 +211,7 @@ func NewCommand() *cobra.Command {
 	command.Flags().IntVar(&selfHealTimeoutSeconds, "self-heal-timeout-seconds", env.ParseNumFromEnv("ARGOCD_APPLICATION_CONTROLLER_SELF_HEAL_TIMEOUT_SECONDS", 5, 0, math.MaxInt32), "Specifies timeout between application self heal attempts")
 	command.Flags().Int64Var(&kubectlParallelismLimit, "kubectl-parallelism-limit", env.ParseInt64FromEnv("ARGOCD_APPLICATION_CONTROLLER_KUBECTL_PARALLELISM_LIMIT", 20, 0, math.MaxInt64), "Number of allowed concurrent kubectl fork/execs. Any value less than 1 means no limit.")
 	command.Flags().BoolVar(&repoServerPlaintext, "repo-server-plaintext", env.ParseBoolFromEnv("ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER_PLAINTEXT", false), "Disable TLS on connections to repo server")
+	command.Flags().BoolVar(&shardPerNs, "shard-per-ns", env.ParseBoolFromEnv("ARGOCD_APPLICATION_CONTROLLER_SHARD_PER_NS", false), "Enable shard per namespace")
 	command.Flags().BoolVar(&repoServerStrictTLS, "repo-server-strict-tls", env.ParseBoolFromEnv("ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER_STRICT_TLS", false), "Whether to use strict validation of the TLS cert presented by the repo server")
 	command.Flags().StringSliceVar(&metricsAplicationLabels, "metrics-application-labels", []string{}, "List of Application labels that will be added to the argocd_application_labels metric")
 	command.Flags().StringVar(&otlpAddress, "otlp-address", env.StringFromEnv("ARGOCD_APPLICATION_CONTROLLER_OTLP_ADDRESS", ""), "OpenTelemetry collector address to send traces to")

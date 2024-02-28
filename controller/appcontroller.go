@@ -133,6 +133,7 @@ type ApplicationController struct {
 	// dynamicClusterDistributionEnabled if disabled deploymentInformer is never initialized
 	dynamicClusterDistributionEnabled bool
 	deploymentInformer                informerv1.DeploymentInformer
+	shardPerNs                        bool
 }
 
 // NewApplicationController creates new instance of ApplicationController.
@@ -159,6 +160,7 @@ func NewApplicationController(
 	rateLimiterConfig *ratelimiter.AppControllerRateLimiterConfig,
 	serverSideDiff bool,
 	dynamicClusterDistributionEnabled bool,
+	shardPerNs bool,
 ) (*ApplicationController, error) {
 	log.Infof("appResyncPeriod=%v, appHardResyncPeriod=%v, appResyncJitter=%v", appResyncPeriod, appHardResyncPeriod, appResyncJitter)
 	db := db.NewDB(namespace, settingsMgr, kubeClientset)
@@ -190,6 +192,7 @@ func NewApplicationController(
 		projByNameCache:                   sync.Map{},
 		applicationNamespaces:             applicationNamespaces,
 		dynamicClusterDistributionEnabled: dynamicClusterDistributionEnabled,
+		shardPerNs:                        shardPerNs,
 	}
 	if kubectlParallelismLimit > 0 {
 		ctrl.kubectlSemaphore = semaphore.NewWeighted(kubectlParallelismLimit)
@@ -284,7 +287,7 @@ func NewApplicationController(
 	ctrl.deploymentInformer = deploymentInformer
 	ctrl.appStateManager = appStateManager
 	ctrl.stateCache = stateCache
-
+	ctrl.shardPerNs = shardPerNs
 	return &ctrl, nil
 }
 
@@ -1975,6 +1978,12 @@ func (ctrl *ApplicationController) shouldSelfHeal(app *appv1.Application) (bool,
 // isAppNamespaceAllowed returns whether the application is allowed in the
 // namespace it's residing in.
 func (ctrl *ApplicationController) isAppNamespaceAllowed(app *appv1.Application) bool {
+	// if shards per namespace feature is enabled, then process
+	// only those applications that are created in the controlplane namespace.
+	if ctrl.shardPerNs {
+		log.Infof("Skipping application '%s' in ns '%s'", app.Name, app.Namespace)
+		return app.Namespace == ctrl.namespace
+	}
 	return app.Namespace == ctrl.namespace || glob.MatchStringInList(ctrl.applicationNamespaces, app.Namespace, false)
 }
 
