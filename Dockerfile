@@ -124,7 +124,12 @@ RUN GIT_COMMIT=$GIT_COMMIT \
     BUILD_DATE=$BUILD_DATE \
     GOOS=$TARGETOS \
     GOARCH=$TARGETARCH \
-    make argocd-all
+    make argocd-all && \
+	make BIN_NAME=argocd-linux-amd64 GOOS=linux argocd-all && \
+	make BIN_NAME=argocd-linux-arm64 GOOS=linux GOARCH=arm64 argocd-all && \
+	make BIN_NAME=argocd-linux-ppc64le GOOS=linux GOARCH=ppc64le argocd-all && \
+	make BIN_NAME=argocd-linux-s390x GOOS=linux GOARCH=s390x argocd-all && \
+	make BIN_NAME=argocd-windows-amd64.exe GOOS=windows argocd-all
 
 ####################################################################################################
 # Final image

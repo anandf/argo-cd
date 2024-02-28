@@ -1193,6 +1193,69 @@ func registerDownloadHandlers(mux *http.ServeMux, base string) {
 			http.ServeFile(w, r, linuxPath)
 		})
 	}
+
+	linuxAmd64Path, err := exec.LookPath("argocd-linux-amd64")
+	if err != nil {
+		log.Warnf("argocd-linux-amd64 not in PATH")
+	} else {
+		mux.HandleFunc(base+"/argocd-linux-amd64", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, linuxAmd64Path)
+		})
+	}
+
+	linuxArm64Path, err := exec.LookPath("argocd-linux-arm64")
+	if err != nil {
+		log.Warnf("argocd-linux-arm64 not in PATH")
+	} else {
+		mux.HandleFunc(base+"/argocd-linux-arm64", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, linuxArm64Path)
+		})
+	}
+
+	linuxPpc64lePath, err := exec.LookPath("argocd-linux-ppc64le")
+	if err != nil {
+		log.Warnf("argocd-linux-ppc64le not in PATH")
+	} else {
+		mux.HandleFunc(base+"/argocd-linux-ppc64le", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, linuxPpc64lePath)
+		})
+	}
+
+	linuxS390xPath, err := exec.LookPath("argocd-linux-s390x")
+	if err != nil {
+		log.Warnf("argocd-linux-s390x not in PATH")
+	} else {
+		mux.HandleFunc(base+"/argocd-linux-s390x", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, linuxS390xPath)
+		})
+	}
+
+	darwinAmd64Path, err := exec.LookPath("argocd-darwin-amd64")
+	if err != nil {
+		log.Warnf("argocd-darwin-amd64 not in PATH")
+	} else {
+		mux.HandleFunc(base+"/argocd-darwin-amd64", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, darwinAmd64Path)
+		})
+	}
+
+	darwinArm64Path, err := exec.LookPath("argocd-darwin-arm64")
+	if err != nil {
+		log.Warnf("argocd-darwin-arm64 not in PATH")
+	} else {
+		mux.HandleFunc(base+"/argocd-darwin-arm64", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, darwinArm64Path)
+		})
+	}
+
+	windowsAmd64Path, err := exec.LookPath("argocd-windows-amd64.exe")
+	if err != nil {
+		log.Warnf("argocd-windows-amd64.exe not in PATH")
+	} else {
+		mux.HandleFunc(base+"/argocd-windows-amd64.exe", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, windowsAmd64Path)
+		})
+	}
 }
 
 func (s *ArgoCDServer) getIndexData() ([]byte, error) {
