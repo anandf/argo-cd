@@ -125,11 +125,13 @@ RUN GIT_COMMIT=$GIT_COMMIT \
     GOOS=$TARGETOS \
     GOARCH=$TARGETARCH \
     make argocd-all && \
-	make BIN_NAME=argocd-linux-amd64 GOOS=linux argocd-all && \
+	make BIN_NAME=argocd-linux-amd64 GOOS=linux GOARCH=amd64 argocd-all && \
 	make BIN_NAME=argocd-linux-arm64 GOOS=linux GOARCH=arm64 argocd-all && \
 	make BIN_NAME=argocd-linux-ppc64le GOOS=linux GOARCH=ppc64le argocd-all && \
 	make BIN_NAME=argocd-linux-s390x GOOS=linux GOARCH=s390x argocd-all && \
-	make BIN_NAME=argocd-windows-amd64.exe GOOS=windows argocd-all
+    make BIN_NAME=argocd-darwin-amd64 GOOS=darwin GOARCH=amd64 argocd-all && \
+	make BIN_NAME=argocd-darwin-arm64 GOOS=darwin GOARCH=arm64 argocd-all && \
+    make BIN_NAME=argocd-windows-amd64.exe GOOS=windows GOARCH=amd64 argocd-all
 
 ####################################################################################################
 # Final image
@@ -146,6 +148,14 @@ RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-server && \
     ln -s /usr/local/bin/argocd /usr/local/bin/argocd-notifications && \
     ln -s /usr/local/bin/argocd /usr/local/bin/argocd-applicationset-controller && \
     ln -s /usr/local/bin/argocd /usr/local/bin/argocd-k8s-auth
+
+RUN gzip /usr/local/bin/argocd-linux-amd64 && \
+    gzip /usr/local/bin/argocd-linux-arm64 && \
+    gzip /usr/local/bin/argocd-linux-ppc64le && \
+    gzip /usr/local/bin/argocd-linux-s390x && \
+    gzip  /usr/local/bin/argocd-darwin-amd64 && \
+    gzip /usr/local/bin/argocd-darwin-arm64 && \
+    gzip /usr/local/bin/argocd-windows-amd64.exe
 
 USER $ARGOCD_USER_ID
 ENTRYPOINT ["/usr/bin/tini", "--"]
