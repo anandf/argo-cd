@@ -36,10 +36,10 @@ kubectl --as <user-to-impersonate> --as-group <group-to-impersonate> ...
 
 In order for an application to use a different service account for the application sync operation, the following steps needs to be performed:
 
-1. The impersonation feature flag should be enabled by setting the value of key `application.impersonation.enabled` to `true` in the `argocd-cmd-params-cm` ConfigMap as below:
+1. The impersonation feature flag should be enabled by setting the value of key `application.sync.impersonation.enabled` to `true` in the `argocd-cm` ConfigMap as below:
 ```yaml
 data:
-  application.impersonation.enabled: true
+  application.sync.impersonation.enabled: true
 ```
 
 2. The `AppProject` referenced by the `.spec.project` field of the `Application` must have the `DestinationServiceAccounts` mapping the destination server and namespace to a service account to be used for the sync operation.
@@ -49,11 +49,11 @@ data:
 
 ### Enable application sync with impersonation feature
 
-In order to enable this feature, the Argo CD administrator must reconfigure the `application.impersonation.enabled` settings in the `argocd-cmd-params-cm` ConfigMap as below:
+In order to enable this feature, the Argo CD administrator must reconfigure the `application.sync.impersonation.enabled` settings in the `argocd-cm` ConfigMap as below:
 
 ```yaml
 data:
-  application.impersonation.enabled: true
+  application.sync.impersonation.enabled: true
 ```
   
 ## Configuring destination service accounts

@@ -157,10 +157,7 @@ So that, I can use a generic convention of naming service accounts and avoid ass
 
 #### Component: ArgoCD Application Controller
 
-- Provide a configuration in `argocd-cm`  which can be modified to enable the Impersonation feature. Set `application.enable.impersonation: true` in the Argo CD ConfigMap. Default value of `application.enable.impersonation` would be `false` and user has to explicitly override it to use this feature.
-- Provide an option to override the Impersonation feature using environment variables.
-Set `ARGOCD_APPLICATION_CONTROLLER_ENABLE_IMPERSONATION=true` in the Application controller environment variables. Default value of the environment variable must be `false` and user has to explicitly set it to `true` to use this feature.
-- Provide an option to enable this feature using a command line flag `--enable-impersonation`. This new argument option needs to be added to the Application controller args.
+- Provide a configuration in `argocd-cm`  which can be modified to enable the Impersonation feature. Set `application.sync.impersonation.enabled: true` in the Argo CD ConfigMap. Default value of `application.sync.impersonation.enabled` would be `false` and user has to explicitly override it to use this feature.
 - Fix Application Controller `sync.go` to set the Impersonate configuration from the AppProject CR to the `SyncContext` Object (rawConfig and restConfig field, need to understand which config is used for the actual sync and if both configs need to be impersonated.)
 
 #### Component: ArgoCD UI
@@ -195,7 +192,7 @@ kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/master/manif
 
 - Enable the impersonation feature in ArgoCD.
 ```shell
-kubectl set env statefulset/argocd-application-controller ARGOCD_APPLICATION_CONTROLLER_ENABLE_IMPERSONATION=true
+kubectl patch cm argocd-cm -n argocd --type json --patch '[{ "op": "add", "path": "/data/application.sync.impersonation.enabled", "value": "true" }]'
 ```
 
 - Create a namespace called `guestbook` and a service account called `guestbook-deployer`.
@@ -259,7 +256,7 @@ kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/master/manif
 
 - Enable the impersonation feature in ArgoCD.
 ```shell
-kubectl set env statefulset/argocd-application-controller ARGOCD_APPLICATION_CONTROLLER_ENABLE_IMPERSONATION=true
+kubectl patch cm argocd-cm -n argocd --type json --patch '[{ "op": "add", "path": "/data/application.sync.impersonation.enabled", "value": "true" }]'
 ```
 
 - Create a namespace called `guestbook` and a service account called `guestbook-deployer`.
@@ -327,7 +324,7 @@ kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/master/manif
 
 - Enable the impersonation feature in ArgoCD.
 ```shell
-kubectl set env statefulset/argocd-application-controller ARGOCD_APPLICATION_CONTROLLER_ENABLE_IMPERSONATION=true
+kubectl patch cm argocd-cm -n argocd --type json --patch '[{ "op": "add", "path": "/data/application.sync.impersonation.enabled", "value": "true" }]'
 ```
 
 - Add the remote cluster as a destination to argocd
@@ -400,7 +397,7 @@ kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/master/manif
 
 - Enable the impersonation feature in ArgoCD.
 ```shell
-kubectl set env statefulset/argocd-application-controller ARGOCD_APPLICATION_CONTROLLER_ENABLE_IMPERSONATION=true
+kubectl patch cm argocd-cm -n argocd --type json --patch '[{ "op": "add", "path": "/data/application.sync.impersonation.enabled", "value": "true" }]'
 ```
 
 - In the remote cluster, create a service account called `argocd-admin`

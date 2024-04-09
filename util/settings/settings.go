@@ -512,7 +512,7 @@ const (
 	RespectRBACValueStrict = "strict"
 	RespectRBACValueNormal = "normal"
 	// impersonationEnabledKey is the key to configure whether the application sync decoupling through impersonation feature is enabled
-	impersonationEnabledKey = "application.impersonation.enabled"
+	impersonationEnabledKey = "application.sync.impersonation.enabled"
 )
 
 var (
