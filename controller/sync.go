@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/managedfields"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/util/openapi"
 
 	"github.com/argoproj/argo-cd/v2/controller/metrics"
@@ -29,6 +30,7 @@ import (
 	listersv1alpha1 "github.com/argoproj/argo-cd/v2/pkg/client/listers/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v2/util/argo"
 	"github.com/argoproj/argo-cd/v2/util/argo/diff"
+	"github.com/argoproj/argo-cd/v2/util/glob"
 	logutils "github.com/argoproj/argo-cd/v2/util/log"
 	"github.com/argoproj/argo-cd/v2/util/lua"
 	"github.com/argoproj/argo-cd/v2/util/rand"
@@ -213,6 +215,11 @@ func (m *appStateManager) SyncAppState(app *v1alpha1.Application, state *v1alpha
 
 	rawConfig := clst.RawRestConfig()
 	restConfig := metrics.AddMetricsTransportWrapper(m.metricsServer, app, clst.RESTConfig())
+
+	if m.settingsMgr.GetIsImpersonationEnabled() {
+		setImpersonationConfig(rawConfig, app, proj)
+		setImpersonationConfig(restConfig, app, proj)
+	}
 
 	resourceOverrides, err := m.settingsMgr.GetResourceOverrides()
 	if err != nil {
@@ -538,4 +545,30 @@ func syncWindowPreventsSync(app *v1alpha1.Application, proj *v1alpha1.AppProject
 		isManual = !app.Status.OperationState.Operation.InitiatedBy.Automated
 	}
 	return !window.CanSync(isManual)
+}
+
+const impersonateUserNameFormat = "system:serviceaccount:%s:%s"
+const defaultServiceAccountName = "default"
+
+// setImpersonationConfig sets the impersonation config if the feature is enabled via environment variable explicitly.
+func setImpersonationConfig(cfg *rest.Config, app *v1alpha1.Application, proj *v1alpha1.AppProject) {
+	serviceAccountName := deriveServiceAccountName(proj, app)
+	cfg.Impersonate = rest.ImpersonationConfig{
+		UserName: fmt.Sprintf(impersonateUserNameFormat, app.Namespace, serviceAccountName),
+	}
+}
+
+// deriveServiceAccountName determines the service account to be used for impersonation for the application sync operation.
+func deriveServiceAccountName(project *v1alpha1.AppProject, application *v1alpha1.Application) string {
+	// Loop through the destinationServiceAccounts and see if there is any destination that is an exact match
+	// if so, return the service account specified for that destination.
+	for _, item := range project.Spec.DestinationServiceAccounts {
+		dstServerMatched := item.Server == "*" || glob.Match(item.Server, application.Spec.Destination.Server)
+		dstNamespaceMatched := item.Namespace == "*" || glob.Match(item.Namespace, application.Spec.Destination.Namespace)
+		if dstServerMatched && dstNamespaceMatched {
+			return item.DefaultServiceAccount
+		}
+	}
+	// if there is no match found in the AppProject.Spec.DestinationServiceAccounts, use the default service account of the destination namespace.
+	return defaultServiceAccountName
 }
