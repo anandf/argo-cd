@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -547,28 +548,40 @@ func syncWindowPreventsSync(app *v1alpha1.Application, proj *v1alpha1.AppProject
 	return !window.CanSync(isManual)
 }
 
-const impersonateUserNameFormat = "system:serviceaccount:%s:%s"
+const impersonateUserNameFormat = "system:serviceaccount:%s"
 const defaultServiceAccountName = "default"
 
 // setImpersonationConfig sets the impersonation config if the feature is enabled via environment variable explicitly.
 func setImpersonationConfig(cfg *rest.Config, app *v1alpha1.Application, proj *v1alpha1.AppProject) {
 	serviceAccountName := deriveServiceAccountName(proj, app)
 	cfg.Impersonate = rest.ImpersonationConfig{
-		UserName: fmt.Sprintf(impersonateUserNameFormat, app.Namespace, serviceAccountName),
+		UserName: fmt.Sprintf(impersonateUserNameFormat, serviceAccountName),
 	}
 }
 
 // deriveServiceAccountName determines the service account to be used for impersonation for the application sync operation.
 func deriveServiceAccountName(project *v1alpha1.AppProject, application *v1alpha1.Application) string {
+	// spec.Destination.Namespace is optional. If not specified, use the Application's
+	// namespace
+	serviceAccountNamespace := application.Namespace
+	if application.Spec.Destination.Namespace != "" {
+		serviceAccountNamespace = application.Spec.Destination.Namespace
+	}
 	// Loop through the destinationServiceAccounts and see if there is any destination that is an exact match
 	// if so, return the service account specified for that destination.
 	for _, item := range project.Spec.DestinationServiceAccounts {
 		dstServerMatched := item.Server == "*" || glob.Match(item.Server, application.Spec.Destination.Server)
 		dstNamespaceMatched := item.Namespace == "*" || glob.Match(item.Namespace, application.Spec.Destination.Namespace)
 		if dstServerMatched && dstNamespaceMatched {
-			return item.DefaultServiceAccount
+			if strings.Contains(item.DefaultServiceAccount, ":") {
+				// service account is fully qualified with the namespace.
+				return item.DefaultServiceAccount
+			} else {
+				// service account needs to be prefixed by its namespace
+				return fmt.Sprintf("%s:%s", serviceAccountNamespace, item.DefaultServiceAccount)
+			}
 		}
 	}
 	// if there is no match found in the AppProject.Spec.DestinationServiceAccounts, use the default service account of the destination namespace.
-	return defaultServiceAccountName
+	return fmt.Sprintf("%s:%s", serviceAccountNamespace, defaultServiceAccountName)
 }
