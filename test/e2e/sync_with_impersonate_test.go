@@ -91,8 +91,10 @@ func TestSyncWithImpersonateWithSyncServiceAccount(t *testing.T) {
 					DefaultServiceAccount: "false-serviceAccount",
 				},
 			}
-			createTestServiceAccount(serviceAccountName, fixture.DeploymentNamespace())
-			createTestAppProject(projectName, fixture.TestNamespace(), destinationServiceAccounts)
+			err := createTestServiceAccount(serviceAccountName, fixture.DeploymentNamespace())
+			assert.NoError(t, err)
+			err = createTestAppProject(projectName, fixture.TestNamespace(), destinationServiceAccounts)
+			assert.NoError(t, err)
 			createTestRole(roleName, fixture.DeploymentNamespace(), []rbac.PolicyRule{
 				{
 					APIGroups: []string{"apps", ""},
@@ -105,8 +107,10 @@ func TestSyncWithImpersonateWithSyncServiceAccount(t *testing.T) {
 					Verbs:     []string{"*"},
 				},
 			})
+			assert.NoError(t, err)
 
-			createTestRoleBinding(roleName, serviceAccountName, fixture.DeploymentNamespace())
+			err = createTestRoleBinding(roleName, serviceAccountName, fixture.DeploymentNamespace())
+			assert.NoError(t, err)
 
 		}).
 		CreateFromFile(func(app *Application) {
@@ -140,8 +144,10 @@ func TestSyncWithImpersonateWithFalseServiceAccount(t *testing.T) {
 					DefaultServiceAccount: serviceAccountName,
 				},
 			}
-			createTestServiceAccount(serviceAccountName, fixture.DeploymentNamespace())
-			createTestAppProject(projectName, fixture.TestNamespace(), destinationServiceAccounts)
+			err := createTestServiceAccount(serviceAccountName, fixture.DeploymentNamespace())
+			assert.NoError(t, err)
+			err = createTestAppProject(projectName, fixture.TestNamespace(), destinationServiceAccounts)
+			assert.NoError(t, err)
 			createTestRole(roleName, fixture.DeploymentNamespace(), []rbac.PolicyRule{
 				{
 					APIGroups: []string{"apps", ""},
@@ -154,8 +160,10 @@ func TestSyncWithImpersonateWithFalseServiceAccount(t *testing.T) {
 					Verbs:     []string{"*"},
 				},
 			})
+			assert.NoError(t, err)
 
-			createTestRoleBinding(roleName, serviceAccountName, fixture.DeploymentNamespace())
+			err = createTestRoleBinding(roleName, serviceAccountName, fixture.DeploymentNamespace())
+			assert.NoError(t, err)
 
 		}).
 		CreateFromFile(func(app *Application) {
