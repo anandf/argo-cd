@@ -25,7 +25,6 @@ func TestSyncWithImpersonateDisable(t *testing.T) {
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
-// TestSyncWithImpersonateDefaultServiceAccountNoRBAC tests sync with impersonation using the default service account without RBAC.
 func TestSyncWithImpersonateDefaultNamespaceServiceAccountNoRBAC(t *testing.T) {
 	Given(t).
 		Path("guestbook").
@@ -38,7 +37,6 @@ func TestSyncWithImpersonateDefaultNamespaceServiceAccountNoRBAC(t *testing.T) {
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync))
 }
 
-// TestSyncWithImpersonateDefaultServiceAccountWithRBAC tests sync with impersonation using the default service account with RBAC.
 func TestSyncWithImpersonateDefaultNamespaceServiceAccountWithRBAC(t *testing.T) {
 	roleName := "default-sa-role"
 	//assert.NoError(t, err)
@@ -50,7 +48,7 @@ func TestSyncWithImpersonateDefaultNamespaceServiceAccountWithRBAC(t *testing.T)
 			app.Spec.SyncPolicy = &SyncPolicy{Automated: &SyncPolicyAutomated{}}
 		}).
 		And(func() {
-			err := createRole(roleName, fixture.DeploymentNamespace(), []rbac.PolicyRule{
+			err := createTestRole(roleName, fixture.DeploymentNamespace(), []rbac.PolicyRule{
 				{
 					APIGroups: []string{"apps", ""},
 					Resources: []string{"deployments"},
@@ -63,14 +61,13 @@ func TestSyncWithImpersonateDefaultNamespaceServiceAccountWithRBAC(t *testing.T)
 				},
 			})
 			assert.NoError(t, err)
-			err = createRoleBinding(roleName, "default", fixture.DeploymentNamespace())
+			err = createTestRoleBinding(roleName, "default", fixture.DeploymentNamespace())
 			assert.NoError(t, err)
 		}).
 		Then().
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
-// TestSyncWithImpersonateWithApproject tests sync with impersonation with AppProject.
 func TestSyncWithImpersonateWithSyncServiceAccount(t *testing.T) {
 	projectName := "sync-test-project"
 	serviceAccountName := "test-account"
@@ -94,9 +91,9 @@ func TestSyncWithImpersonateWithSyncServiceAccount(t *testing.T) {
 					DefaultServiceAccount: "false-serviceAccount",
 				},
 			}
-			createServiceAccount(serviceAccountName, fixture.DeploymentNamespace())
-			createAppProject(projectName, fixture.TestNamespace(), destinationServiceAccounts)
-			createRole(roleName, fixture.DeploymentNamespace(), []rbac.PolicyRule{
+			createTestServiceAccount(serviceAccountName, fixture.DeploymentNamespace())
+			createTestAppProject(projectName, fixture.TestNamespace(), destinationServiceAccounts)
+			createTestRole(roleName, fixture.DeploymentNamespace(), []rbac.PolicyRule{
 				{
 					APIGroups: []string{"apps", ""},
 					Resources: []string{"deployments"},
@@ -109,7 +106,7 @@ func TestSyncWithImpersonateWithSyncServiceAccount(t *testing.T) {
 				},
 			})
 
-			createRoleBinding(roleName, serviceAccountName, fixture.DeploymentNamespace())
+			createTestRoleBinding(roleName, serviceAccountName, fixture.DeploymentNamespace())
 
 		}).
 		CreateFromFile(func(app *Application) {
@@ -143,9 +140,9 @@ func TestSyncWithImpersonateWithFalseServiceAccount(t *testing.T) {
 					DefaultServiceAccount: serviceAccountName,
 				},
 			}
-			createServiceAccount(serviceAccountName, fixture.DeploymentNamespace())
-			createAppProject(projectName, fixture.TestNamespace(), destinationServiceAccounts)
-			createRole(roleName, fixture.DeploymentNamespace(), []rbac.PolicyRule{
+			createTestServiceAccount(serviceAccountName, fixture.DeploymentNamespace())
+			createTestAppProject(projectName, fixture.TestNamespace(), destinationServiceAccounts)
+			createTestRole(roleName, fixture.DeploymentNamespace(), []rbac.PolicyRule{
 				{
 					APIGroups: []string{"apps", ""},
 					Resources: []string{"deployments"},
@@ -158,7 +155,7 @@ func TestSyncWithImpersonateWithFalseServiceAccount(t *testing.T) {
 				},
 			})
 
-			createRoleBinding(roleName, serviceAccountName, fixture.DeploymentNamespace())
+			createTestRoleBinding(roleName, serviceAccountName, fixture.DeploymentNamespace())
 
 		}).
 		CreateFromFile(func(app *Application) {
@@ -169,8 +166,8 @@ func TestSyncWithImpersonateWithFalseServiceAccount(t *testing.T) {
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync))
 }
 
-// createAppProject creates an AppProject resource.
-func createAppProject(name, namespace string, destinationServiceAccounts []ApplicationDestinationServiceAccount) error {
+// createTestAppProject creates a test AppProject resource.
+func createTestAppProject(name, namespace string, destinationServiceAccounts []ApplicationDestinationServiceAccount) error {
 	appProject := &AppProject{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -199,8 +196,8 @@ func createAppProject(name, namespace string, destinationServiceAccounts []Appli
 	return err
 }
 
-// createRole creates a Role resource.
-func createRole(roleName, namespace string, rules []rbac.PolicyRule) error {
+// createTestRole creates a test Role resource.
+func createTestRole(roleName, namespace string, rules []rbac.PolicyRule) error {
 	role := &rbac.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      roleName,
@@ -213,8 +210,8 @@ func createRole(roleName, namespace string, rules []rbac.PolicyRule) error {
 	return err
 }
 
-// createRoleBinding creates a RoleBinding resource.
-func createRoleBinding(roleName, serviceAccountName, namespace string) error {
+// createTestRoleBinding creates a test RoleBinding resource.
+func createTestRoleBinding(roleName, serviceAccountName, namespace string) error {
 	roleBinding := &rbac.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: roleName + "-binding",
@@ -237,8 +234,8 @@ func createRoleBinding(roleName, serviceAccountName, namespace string) error {
 	return err
 }
 
-// createServiceAccount creates a ServiceAccount resource.
-func createServiceAccount(name, namespace string) error {
+// createTestServiceAccount creates a test ServiceAccount resource.
+func createTestServiceAccount(name, namespace string) error {
 	serviceAccount := &v1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
