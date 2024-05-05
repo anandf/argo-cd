@@ -146,6 +146,7 @@ require (
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
+	github.com/ugurcsen/gods-generic v0.10.4 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.starlark.net v0.0.0-20230525235612-a134d8f9ddca // indirect
 	golang.org/x/mod v0.14.0 // indirect
@@ -295,6 +296,7 @@ require (
 )
 
 replace (
+	github.com/argoproj/gitops-engine => github.com/anandf/gitops-engine v0.0.0-20240512234141-9ba6a8f31906
 	// https://github.com/golang/go/issues/33546#issuecomment-519656923
 	github.com/go-check/check => github.com/go-check/check v0.0.0-20180628173108-788fd7840127
 
