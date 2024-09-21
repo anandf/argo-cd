@@ -1378,6 +1378,8 @@ func groupObjsForDiff(resources *application.ManagedResourcesResponse, objs map[
 				errors.CheckError(err)
 			}
 
+			resourceTracking.SetAppInstanceID(local, argoSettings.URL)
+
 			items = append(items, objKeyLiveTarget{key, live, local})
 			delete(objs, key)
 		}

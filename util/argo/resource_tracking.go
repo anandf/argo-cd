@@ -32,6 +32,7 @@ type ResourceTracking interface {
 	GetAppName(un *unstructured.Unstructured, key string, trackingMethod v1alpha1.TrackingMethod) string
 	GetAppInstance(un *unstructured.Unstructured, key string, trackingMethod v1alpha1.TrackingMethod) *AppInstanceValue
 	SetAppInstance(un *unstructured.Unstructured, key, val, namespace string, trackingMethod v1alpha1.TrackingMethod) error
+	SetAppInstanceID(un *unstructured.Unstructured, url string) error
 	BuildAppInstanceValue(value AppInstanceValue) string
 	ParseAppInstanceValue(value string) (*AppInstanceValue, error)
 	Normalize(config, live *unstructured.Unstructured, labelKey, trackingMethod string) error
@@ -135,6 +136,10 @@ func UnstructuredToAppInstanceValue(un *unstructured.Unstructured, appName, name
 		Namespace:       ns,
 		Name:            un.GetName(),
 	}
+}
+
+func (rt *resourceTracking) SetAppInstanceID(un *unstructured.Unstructured, url string) error {
+	return argokube.SetAppInstanceAnnotation(un, common.AnnotationKeyAppInstanceID, url)
 }
 
 // SetAppInstance set label/annotation base on tracking method
