@@ -190,20 +190,22 @@ func (a *ArgoCDWebhookHandler) affectedRevisionInfo(payloadIf any) (webURLs []st
 		// See: https://confluence.atlassian.com/bitbucket/event-payloads-740262817.html#EventPayloads-Push
 		// NOTE: this is untested
 		webURLs = append(webURLs, payload.Repository.Links.HTML.Href)
+		repoCreds, err := a.db.GetRepositoryCredentials(context.Background(), webURLs[0])
+		if err != nil {
+			log.Warnf("Failed to retrieve repository secret access token: %v", err)
+			break
+		}
 		for _, changes := range payload.Push.Changes {
 			revision = changes.New.Name
 			change.shaBefore = changes.Old.Target.Hash
 			change.shaAfter = changes.New.Target.Hash
-			repoCreds, err := a.db.GetRepositoryCredentials(context.TODO(), webURLs[0])
-			if err != nil {
-				log.Warnf("Failed to retrieve repository secret access token: %v", err)
-				break
-			}
+			workspace := strings.Split(payload.Repository.FullName, "/")[0]
 			spec := change.shaAfter + ".." + change.shaBefore
-			changedFiles, err = fetchDiffstatFromBitbucket(strings.Split(payload.Repository.FullName, "/")[0], payload.Repository.Name, spec, repoCreds)
+			changedFilesPerChange, err := fetchDiffstatFromBitbucket(workspace, payload.Repository.Name, spec, repoCreds)
 			if err != nil {
-				log.Warnf("Error fetching diffstat: %v", err)
+				log.Warnf("error fetching diffstat: %v", err)
 			}
+			changedFiles = append(changedFiles, changedFilesPerChange...)
 		}
 		// Not actually sure how to check if the incoming change affected HEAD just by examining the
 		// payload alone. To be safe, we just return true and let the controller check for himself.
