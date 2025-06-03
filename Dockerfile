@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=docker.io/library/ubuntu:24.04@sha256:80dd3c3b9c6cecb9f1667e9290b3bc61b78c2678c02cbdae5f0fea92cc6734ab
+ARG BASE_IMAGE=cgr.dev/chainguard/wolfi-base
 ####################################################################################################
 # Builder image
 # Initial stage which pulls prepares build dependencies and CLI tooling we need for our final image
@@ -40,19 +40,13 @@ LABEL org.opencontainers.image.source="https://github.com/argoproj/argo-cd"
 
 USER root
 
-ENV ARGOCD_USER_ID=999 \
-    DEBIAN_FRONTEND=noninteractive
+ENV ARGOCD_USER_ID=999
 
-RUN groupadd -g $ARGOCD_USER_ID argocd && \
-    useradd -r -u $ARGOCD_USER_ID -g argocd argocd && \
+RUN addgroup -g $ARGOCD_USER_ID argocd &&\
+    adduser -D -u $ARGOCD_USER_ID -G argocd argocd &&\
     mkdir -p /home/argocd && \
-    chown argocd:0 /home/argocd && \
-    chmod g=u /home/argocd && \
-    apt-get update && \
-    apt-get dist-upgrade -y && \
-    apt-get install -y \
-    git git-lfs tini gpg tzdata connect-proxy && \
-    apt-get clean && \
+    # missing connect-proxy added via https://github.com/wolfi-dev/os/pull/55108
+    apk add --no-cache git git-lfs tini gpg tzdata &&\
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 COPY hack/gpg-wrapper.sh \
@@ -68,6 +62,7 @@ RUN ln -s /usr/local/bin/entrypoint.sh /usr/local/bin/uid_entrypoint.sh
 # support for mounting configuration from a configmap
 WORKDIR /app/config/ssh
 RUN touch ssh_known_hosts && \
+    mkdir -p /etc/ssh &&\
     ln -s /app/config/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts
 
 WORKDIR /app/config
