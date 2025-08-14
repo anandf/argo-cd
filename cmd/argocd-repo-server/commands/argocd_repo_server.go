@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"crypto/fips140"
 	"fmt"
 	"math"
 	"net"
@@ -93,7 +94,8 @@ func NewCommand() *cobra.Command {
 			vers.LogStartupInfo(
 				"ArgoCD Repository Server",
 				map[string]any{
-					"port": listenPort,
+					"port":         listenPort,
+					"fips_enabled": fips140.Enabled(),
 				},
 			)
 
