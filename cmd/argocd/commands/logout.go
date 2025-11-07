@@ -1,17 +1,26 @@
 package commands
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/argoproj/argo-cd/v3/cmd/argocd/commands/utils"
+	"github.com/argoproj/argo-cd/v3/common"
 	argocdclient "github.com/argoproj/argo-cd/v3/pkg/apiclient"
+	"github.com/argoproj/argo-cd/v3/util/cli"
 	"github.com/argoproj/argo-cd/v3/util/errors"
+	grpc_util "github.com/argoproj/argo-cd/v3/util/grpc"
 	"github.com/argoproj/argo-cd/v3/util/localconfig"
 )
+
+const DialTime = 30 * time.Second
 
 // NewLogoutCommand returns a new instance of `argocd logout` command
 func NewLogoutCommand(globalClientOpts *argocdclient.ClientOptions) *cobra.Command {
@@ -36,10 +45,62 @@ $ argocd logout
 				log.Fatalf("Nothing to logout from")
 			}
 
-			promptUtil := utils.NewPrompt(globalClientOpts.PromptsEnabled)
+			token := localCfg.GetToken(context)
+			if token == "" {
+				log.Fatalf("Error in getting token from context")
+			}
 
+			client := &http.Client{}
+
+			tlsTestResult, err := grpc_util.TestTLS(context, DialTime)
+			errors.CheckError(err)
+			if !tlsTestResult.TLS {
+				if !globalClientOpts.PlainText {
+					if !cli.AskToProceed("WARNING: server is not configured with TLS. Proceed (y/n)? ") {
+						os.Exit(1)
+					}
+					globalClientOpts.PlainText = true
+				}
+			} else if tlsTestResult.InsecureErr != nil {
+				if !globalClientOpts.Insecure {
+					if !cli.AskToProceed(fmt.Sprintf("WARNING: server certificate had error: %s. Proceed insecurely (y/n)? ", tlsTestResult.InsecureErr)) {
+						os.Exit(1)
+					}
+					globalClientOpts.Insecure = true
+				}
+			}
+
+			scheme := "https"
+			if globalClientOpts.PlainText {
+				scheme = strings.TrimSuffix(scheme, "s")
+			} else if globalClientOpts.Insecure {
+				client.Transport = &http.Transport{
+					TLSClientConfig: &tls.Config{
+						InsecureSkipVerify: true,
+					},
+				}
+			}
+			promptUtil := utils.NewPrompt(globalClientOpts.PromptsEnabled)
 			canLogout := promptUtil.Confirm(fmt.Sprintf("Are you sure you want to log out from '%s'?", context))
 			if canLogout {
+				// Call logout endpoint to revoke the token server side
+				logoutURL := fmt.Sprintf("%s://%s%s", scheme, context, common.LogoutEndpoint)
+				req, err := http.NewRequest(http.MethodPost, logoutURL, nil)
+				errors.CheckError(err)
+				cookie := &http.Cookie{
+					Name:  common.AuthCookieName,
+					Value: token,
+				}
+				req.AddCookie(cookie)
+
+				res, err := client.Do(req)
+				if err != nil {
+					log.Warnf("Failed to invalidate token on server: %v. Proceeding with local logout.", err)
+				} else if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusSeeOther {
+					log.Warnf("Server returned unexpected status %d during logout", res.StatusCode)
+				}
+
+				// Remove token from local config
 				ok := localCfg.RemoveToken(context)
 				if !ok {
 					log.Fatalf("Context %s does not exist", context)

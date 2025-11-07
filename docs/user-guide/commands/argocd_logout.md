@@ -8,6 +8,20 @@ Log out from Argo CD
 
 Log out from Argo CD
 
+When you logout, the following actions occur:
+
+1. You are prompted to confirm the logout
+2. The authentication token is invalidated on the Argo CD server (added to revocation list)
+3. The token is removed from your local configuration file
+4. If using SSO with a configured logout URL, you are redirected to your identity provider's logout page
+
+**Important Security Notes:**
+
+- **Token Revocation**: Logging out invalidates your token on the server, preventing further use even if the token hasn't expired
+- **Redis Requirement**: For HA deployments with multiple server instances, Redis must be configured for token revocation to work across all instances
+- **Graceful Degradation**: If the server is unreachable, the logout command will remove the local token with a warning, though server-side revocation will not occur
+- **SSO Sessions**: If using Dex or OIDC SSO, configure a `logoutURL` in your OIDC config to ensure your SSO session is also terminated
+
 ```
 argocd logout CONTEXT [flags]
 ```
