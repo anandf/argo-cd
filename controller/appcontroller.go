@@ -47,6 +47,7 @@ import (
 	commitclient "github.com/argoproj/argo-cd/v3/commitserver/apiclient"
 	"github.com/argoproj/argo-cd/v3/common"
 	statecache "github.com/argoproj/argo-cd/v3/controller/cache"
+	"github.com/argoproj/argo-cd/v3/controller/graphcache"
 	"github.com/argoproj/argo-cd/v3/controller/hydrator"
 	hydratortypes "github.com/argoproj/argo-cd/v3/controller/hydrator/types"
 	"github.com/argoproj/argo-cd/v3/controller/metrics"
@@ -326,7 +327,21 @@ func NewApplicationController(
 			return nil, err
 		}
 	}
-	stateCache := statecache.NewLiveStateCache(db, appInformer, ctrl.settingsMgr, ctrl.metricsServer, ctrl.handleObjectUpdated, clusterSharding, argo.NewResourceTracking())
+	stateCache, err := graphcache.NewLiveStateCache(graphcache.CacheFactoryConfig{
+		DB:                    db,
+		AppInformer:           appInformer,
+		SettingsMgr:           ctrl.settingsMgr,
+		MetricsServer:         ctrl.metricsServer,
+		OnObjectUpdated:       ctrl.handleObjectUpdated,
+		ClusterSharding:       clusterSharding,
+		ResourceTracking:      argo.NewResourceTracking(),
+		KubeClientset:         kubeClientset,
+		RepoServerClient:      repoClientset,
+		ApplicationNamespaces: applicationNamespaces,
+	})
+	if err != nil {
+		return nil, err
+	}
 	appStateManager := NewAppStateManager(db, applicationClientset, repoClientset, namespace, kubectl, ctrl.onKubectlRun, ctrl.settingsMgr, stateCache, ctrl.metricsServer, argoCache, ctrl.statusRefreshTimeout, argo.NewResourceTracking(), persistResourceHealth, repoErrorGracePeriod, serverSideDiff, ignoreNormalizerOpts)
 	ctrl.appInformer = appInformer
 	ctrl.appLister = appLister

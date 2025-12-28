@@ -17,6 +17,7 @@ require (
 	github.com/argoproj/argo-cd/gitops-engine v0.7.1-0.20250908182407-97ad5b59a627
 	github.com/argoproj/notifications-engine v0.5.1-0.20260503100631-0cff13b8a717
 	github.com/argoproj/pkg/v2 v2.0.1
+	github.com/avitaltamir/cyphernetes v0.18.3-0.20251205201645-685a0fb20df8
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.16
@@ -139,6 +140,7 @@ require (
 	cloud.google.com/go/pubsub v1.49.0 // indirect
 	cyphar.com/go-pathrs v0.2.1 // indirect
 	github.com/42wim/httpsig v1.2.4 // indirect
+	github.com/AvitalTamir/jsonpath v0.0.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity/cache v0.3.2 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
@@ -214,6 +216,7 @@ require (
 	github.com/gobwas/ws v1.2.1 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang/glog v1.2.5 // indirect
+	github.com/google/gnostic v0.7.1 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-github/v84 v84.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
@@ -365,3 +368,8 @@ replace (
 )
 
 replace github.com/argoproj/argo-cd/gitops-engine => ./gitops-engine
+
+replace (
+	github.com/AvitalTamir/cyphernetes => github.com/avitaltamir/cyphernetes v0.18.3-0.20251205201645-685a0fb20df8
+	github.com/avitaltamir/cyphernetes => github.com/anandf/cyphernetes v0.0.0-20251116172228-804debcd558d
+)
