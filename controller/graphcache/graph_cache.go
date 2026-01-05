@@ -265,7 +265,7 @@ func (gc *GraphCache) discoverResourceType(gk schema.GroupKind) (int, error) {
 	}
 
 	// Ensure watch exists for this type
-	created, err := gc.watchManager.EnsureWatch(gk)
+	created, err := gc.watchManager.EnsureWatch(gk, "")
 	if err != nil {
 		return len(resources), fmt.Errorf("failed to create watch: %w", err)
 	}
@@ -335,7 +335,7 @@ func (gc *GraphCache) ensureDescendantWatches(parentGK schema.GroupKind) {
 		}
 
 		// Try to create watch for descendant type
-		created, err := gc.watchManager.EnsureWatch(childGK)
+		created, err := gc.watchManager.EnsureWatch(childGK, "")
 		if err != nil {
 			log.WithError(err).WithFields(log.Fields{
 				"component": "graph-cache",
@@ -647,7 +647,7 @@ func (gc *GraphCache) EnsureWatch(gvk schema.GroupVersionKind, namespace string)
 	}
 
 	// Create the watch
-	created, err := gc.watchManager.EnsureWatch(gk)
+	created, err := gc.watchManager.EnsureWatch(gk, namespace)
 	if err != nil {
 		return fmt.Errorf("failed to create watch for %s: %w", gvk.String(), err)
 	}

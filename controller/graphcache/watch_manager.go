@@ -48,13 +48,20 @@ type SelectiveWatchManager struct {
 // WatchHandle represents an active watch for a specific resource type.
 type WatchHandle struct {
 	GroupKind     schema.GroupKind
-	Namespaces    []string // Empty means cluster-scoped
-	Watcher       watch.Interface
+	Namespaces    []string // Initial configured namespaces
 	Cancel        context.CancelFunc
 	ResourceCount int // Number of resources watched
 	StartTime     time.Time
 	LastEventTime time.Time
 	IsNamespaced  bool
+
+	// Dynamic namespace tracking
+	watchedNamespaces map[string]bool
+	lock              sync.Mutex
+
+	// Store GVR and Context for extension
+	gvr schema.GroupVersionResource
+	ctx context.Context
 }
 
 // ResourceEventHandler is called when a resource event occurs.
@@ -97,13 +104,18 @@ func NewSelectiveWatchManager(
 }
 
 // EnsureWatch ensures a watch exists for the given resource type.
-// If a watch already exists, this is a no-op. Returns true if a new watch was created.
-func (wm *SelectiveWatchManager) EnsureWatch(gk schema.GroupKind) (bool, error) {
+// If a watch already exists, this is a no-op unless namespace is provided and not yet watched.
+// Returns true if a new watch (or new namespace watch) was created.
+func (wm *SelectiveWatchManager) EnsureWatch(gk schema.GroupKind, namespace string) (bool, error) {
 	wm.watchLock.Lock()
 	defer wm.watchLock.Unlock()
 
 	// Check if watch already exists
-	if _, exists := wm.watches[gk]; exists {
+	if handle, exists := wm.watches[gk]; exists {
+		// If namespace is provided, ensure it is watched
+		if namespace != "" && handle.IsNamespaced {
+			return wm.extendWatch(handle, namespace)
+		}
 		return false, nil
 	}
 
@@ -114,7 +126,7 @@ func (wm *SelectiveWatchManager) EnsureWatch(gk schema.GroupKind) (bool, error) 
 	}
 
 	// Create watch
-	handle, err := wm.createWatch(gk, gvr, isNamespaced)
+	handle, err := wm.createWatch(gk, gvr, isNamespaced, namespace)
 	if err != nil {
 		return false, fmt.Errorf("failed to create watch for %s: %w", gk, err)
 	}
@@ -130,9 +142,10 @@ func (wm *SelectiveWatchManager) EnsureWatch(gk schema.GroupKind) (bool, error) 
 	log.WithFields(log.Fields{
 		"component":  "graph-cache",
 		"group":      gk.Group,
-		"kind":       gk.Kind,
+		"kind":      gk.Kind,
 		"namespaced": isNamespaced,
 		"namespaces": wm.namespaces,
+		"extra_ns":   namespace,
 	}).Info("Created new watch for resource type")
 
 	return true, nil
@@ -150,9 +163,6 @@ func (wm *SelectiveWatchManager) RemoveWatch(gk schema.GroupKind) {
 
 	// Stop the watch
 	handle.Cancel()
-	if handle.Watcher != nil {
-		handle.Watcher.Stop()
-	}
 
 	delete(wm.watches, gk)
 
@@ -227,25 +237,56 @@ func (wm *SelectiveWatchManager) Shutdown() {
 
 	for gk, handle := range wm.watches {
 		handle.Cancel()
-		if handle.Watcher != nil {
-			handle.Watcher.Stop()
-		}
 		delete(wm.watches, gk)
 	}
 
 	log.WithField("component", "graph-cache").Info("Selective watch manager shutdown complete")
 }
 
+// extendWatch ensures that the given namespace is being watched for the handle
+func (wm *SelectiveWatchManager) extendWatch(handle *WatchHandle, namespace string) (bool, error) {
+	handle.lock.Lock()
+	defer handle.lock.Unlock()
+
+	// If we are watching all namespaces
+	if len(wm.namespaces) == 0 {
+		return false, nil // Already watching all
+	}
+
+	if handle.watchedNamespaces[namespace] {
+		return false, nil // Already watching this namespace
+	}
+
+	// Prepare list opts
+	listOpts := metav1.ListOptions{
+		Watch: true,
+	}
+	if wm.trackingMethod == TrackingMethodLabel || wm.trackingMethod == TrackingMethodAnnotationAndLabel {
+		listOpts.LabelSelector = "app.kubernetes.io/instance"
+	}
+
+	// Start watcher using handle's context (so it gets cancelled with handle)
+	go wm.startWatcher(handle.ctx, handle.gvr, namespace, listOpts, handle)
+	
+	handle.watchedNamespaces[namespace] = true
+	log.WithField("namespace", namespace).Info("Extended watch to include namespace")
+	
+	return true, nil
+}
+
 // createWatch creates a watch for the specified resource type.
-func (wm *SelectiveWatchManager) createWatch(gk schema.GroupKind, gvr schema.GroupVersionResource, isNamespaced bool) (*WatchHandle, error) {
+func (wm *SelectiveWatchManager) createWatch(gk schema.GroupKind, gvr schema.GroupVersionResource, isNamespaced bool, extraNamespace string) (*WatchHandle, error) {
 	ctx, cancel := context.WithCancel(wm.ctx)
 
 	handle := &WatchHandle{
-		GroupKind:    gk,
-		Namespaces:   wm.namespaces,
-		Cancel:       cancel,
-		StartTime:    time.Now(),
-		IsNamespaced: isNamespaced,
+		GroupKind:         gk,
+		Namespaces:        wm.namespaces,
+		Cancel:            cancel,
+		StartTime:         time.Now(),
+		IsNamespaced:      isNamespaced,
+		watchedNamespaces: make(map[string]bool),
+		gvr:               gvr,
+		ctx:               ctx,
 	}
 
 	// Build list options with label selector for tracking
@@ -256,49 +297,45 @@ func (wm *SelectiveWatchManager) createWatch(gk schema.GroupKind, gvr schema.Gro
 	// For label-based tracking, we can use a label selector
 	if wm.trackingMethod == TrackingMethodLabel || wm.trackingMethod == TrackingMethodAnnotationAndLabel {
 		// Watch resources with the app.kubernetes.io/instance label
-		// Note: This is a basic selector; in production we might want to be more sophisticated
 		listOpts.LabelSelector = "app.kubernetes.io/instance"
+	} else if wm.trackingMethod == TrackingMethodAnnotation {
+		// Warning for inefficient annotation tracking
+		log.WithFields(log.Fields{
+			"component": "graph-cache",
+			"kind":      gk.Kind,
+		}).Warn("Watching resource with annotation tracking (inefficient). Consider using label tracking.")
 	}
 
 	// Start watches based on scope
 	if isNamespaced {
 		if len(wm.namespaces) == 0 {
 			// Watch all namespaces
-			watcher, err := wm.dynamicClient.Resource(gvr).Watch(ctx, listOpts)
-			if err != nil {
-				cancel()
-				return nil, fmt.Errorf("failed to watch all namespaces: %w", err)
-			}
-			handle.Watcher = watcher
+			go wm.startWatcher(ctx, gvr, "", listOpts, handle)
 		} else {
-			// For POC, we'll watch the first namespace
-			// In production, we'd need to manage multiple watchers
-			namespace := wm.namespaces[0]
-			watcher, err := wm.dynamicClient.Resource(gvr).Namespace(namespace).Watch(ctx, listOpts)
-			if err != nil {
-				cancel()
-				return nil, fmt.Errorf("failed to watch namespace %s: %w", namespace, err)
+			// Watch specific namespaces
+			namespacesToWatch := make(map[string]bool)
+			for _, ns := range wm.namespaces {
+				namespacesToWatch[ns] = true
 			}
-			handle.Watcher = watcher
+			if extraNamespace != "" {
+				namespacesToWatch[extraNamespace] = true
+			}
+
+			for ns := range namespacesToWatch {
+				go wm.startWatcher(ctx, gvr, ns, listOpts, handle)
+				handle.watchedNamespaces[ns] = true
+			}
 		}
 	} else {
 		// Cluster-scoped resource
-		watcher, err := wm.dynamicClient.Resource(gvr).Watch(ctx, listOpts)
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to watch cluster-scoped resource: %w", err)
-		}
-		handle.Watcher = watcher
+		go wm.startWatcher(ctx, gvr, "", listOpts, handle)
 	}
-
-	// Start event processing goroutine
-	go wm.processEvents(handle)
 
 	return handle, nil
 }
 
-// processEvents processes watch events for a specific resource type.
-func (wm *SelectiveWatchManager) processEvents(handle *WatchHandle) {
+// startWatcher establishes a watch and handles auto-recovery
+func (wm *SelectiveWatchManager) startWatcher(ctx context.Context, gvr schema.GroupVersionResource, namespace string, listOpts metav1.ListOptions, handle *WatchHandle) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.WithFields(log.Fields{
@@ -310,36 +347,86 @@ func (wm *SelectiveWatchManager) processEvents(handle *WatchHandle) {
 		}
 	}()
 
-	resultChan := handle.Watcher.ResultChan()
+	minRetry := 1 * time.Second
+	maxRetry := 30 * time.Second
+	retryInterval := minRetry
 
 	for {
+		// Check for cancellation
 		select {
-		case <-wm.ctx.Done():
+		case <-ctx.Done():
 			return
+		default:
+		}
 
-		case event, ok := <-resultChan:
-			if !ok {
-				// Watch closed
-				log.WithFields(log.Fields{
-					"component": "graph-cache",
-					"group":     handle.GroupKind.Group,
-					"kind":      handle.GroupKind.Kind,
-				}).Warn("Watch closed unexpectedly")
+		// Establish watch
+		var watcher watch.Interface
+		var err error
+		
+		if namespace != "" {
+			watcher, err = wm.dynamicClient.Resource(gvr).Namespace(namespace).Watch(ctx, listOpts)
+		} else {
+			watcher, err = wm.dynamicClient.Resource(gvr).Watch(ctx, listOpts)
+		}
+
+		if err != nil {
+			log.WithFields(log.Fields{
+				"component": "graph-cache",
+				"group":     handle.GroupKind.Group,
+				"kind":      handle.GroupKind.Kind,
+				"error":     err,
+			}).Warnf("Failed to watch resource, retrying in %v", retryInterval)
+
+			// Backoff
+			select {
+			case <-ctx.Done():
 				return
-			}
-
-			// Update metrics
-			handle.LastEventTime = time.Now()
-			wm.metricsLock.Lock()
-			wm.metrics.TotalEvents++
-			wm.metrics.EventsByType[event.Type]++
-			wm.metricsLock.Unlock()
-
-			// Process event
-			if obj, ok := event.Object.(*unstructured.Unstructured); ok {
-				wm.handleEvent(event.Type, obj)
+			case <-time.After(retryInterval):
+				retryInterval *= 2
+				if retryInterval > maxRetry {
+					retryInterval = maxRetry
+				}
+				continue
 			}
 		}
+
+		// Watch established successfully
+		retryInterval = minRetry
+
+		// Process events
+		func() {
+			defer watcher.Stop()
+			resultChan := watcher.ResultChan()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case event, ok := <-resultChan:
+					if !ok {
+						// Channel closed
+						log.WithFields(log.Fields{
+							"component": "graph-cache",
+							"group":     handle.GroupKind.Group,
+							"kind":      handle.GroupKind.Kind,
+						}).Warn("Watch closed unexpectedly, reconnecting...")
+						return
+					}
+
+					// Update metrics
+					handle.LastEventTime = time.Now()
+					wm.metricsLock.Lock()
+					wm.metrics.TotalEvents++
+					wm.metrics.EventsByType[event.Type]++
+					wm.metricsLock.Unlock()
+
+					// Process event
+					if obj, ok := event.Object.(*unstructured.Unstructured); ok {
+						wm.handleEvent(event.Type, obj)
+					}
+				}
+			}
+		}()
 	}
 }
 
