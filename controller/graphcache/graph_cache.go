@@ -3,6 +3,7 @@ package graphcache
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -13,25 +14,27 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 
-	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
-
 	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/v3/controller/metrics"
 	repoclient "github.com/argoproj/argo-cd/v3/reposerver/apiclient"
+	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 )
 
 // GraphCache is the main graph-based cache that watches only resources managed by Argo CD.
 type GraphCache struct {
 	// Core components
-	graph               *ResourceGraph
-	watchManager        *SelectiveWatchManager
-	descendantTracker   *DescendantTracker
-	manifestDiscovery   *ManifestDiscovery
-	typeRelationships   *TypeRelationshipCache
+	graph             *ResourceGraph
+	watchManager      *SelectiveWatchManager
+	descendantTracker *DescendantTracker
+	manifestDiscovery *ManifestDiscovery
+	typeRelationships *TypeRelationshipCache
 	cyphernetesExecutor *CyphernetesQueryExecutor
 
 	// Configuration
 	trackingMethod TrackingMethod
 	namespaces     []string
+	serverURL      string      // For metrics labeling
+	graphConfig    GraphConfig // Tunable parameters
 
 	// Discovery state
 	discoveredTypes map[schema.GroupKind]bool
@@ -42,33 +45,36 @@ type GraphCache struct {
 	cancel context.CancelFunc
 
 	// Metrics
-	metricsLock sync.RWMutex
-	metrics     CacheMetrics
+	metricsLock       sync.RWMutex
+	metrics           CacheMetrics
+	prometheusMetrics *metrics.GraphCacheMetrics
 }
 
 // CacheMetrics contains comprehensive metrics about the graph cache.
 type CacheMetrics struct {
 	// Resource counts
-	TotalManagedResources  int
-	ResourcesByType        map[schema.GroupKind]int
-	ResourcesByApplication map[string]int
+	TotalManagedResources   int
+	ResourcesByType         map[schema.GroupKind]int
+	ResourcesByApplication  map[string]int
+	UniqueApplications      int
+	UniqueResourceTypes     int
 
 	// Watch counts
-	ActiveWatches int
-	WatchesByType map[schema.GroupKind]bool
+	ActiveWatches           int
+	WatchesByType           map[schema.GroupKind]bool
 
 	// Discovery metrics
-	DiscoveryRuns         int
-	LastDiscoveryTime     time.Time
-	LastDiscoveryDuration time.Duration
-	ResourcesDiscovered   int
-	DescendantTypesAdded  int
+	DiscoveryRuns           int
+	LastDiscoveryTime       time.Time
+	LastDiscoveryDuration   time.Duration
+	ResourcesDiscovered     int
+	DescendantTypesAdded    int
 
 	// Event metrics
-	TotalEvents  int64
-	AddEvents    int64
-	UpdateEvents int64
-	DeleteEvents int64
+	TotalEvents             int64
+	AddEvents               int64
+	UpdateEvents            int64
+	DeleteEvents            int64
 
 	// Performance
 	AverageEventProcessTime time.Duration
@@ -81,18 +87,53 @@ type Config struct {
 	RepoServerClient repoclient.RepoServerServiceClient
 	TrackingMethod   TrackingMethod
 	Namespaces       []string
+	ServerURL        string      // Server URL for metrics labeling (optional)
+	GraphConfig      GraphConfig // Tunable parameters (optional, uses defaults if not set)
 }
 
 // NewGraphCache creates a new graph-based cache.
-func NewGraphCache(config Config) (*GraphCache, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+// The provided context will be used for all operations and watch management.
+func NewGraphCache(ctx context.Context, config Config) (*GraphCache, error) {
+	// Validate required configuration
+	if config.DynamicClient == nil {
+		return nil, fmt.Errorf("DynamicClient is required")
+	}
+	if config.DiscoveryClient == nil {
+		return nil, fmt.Errorf("DiscoveryClient is required")
+	}
+	if config.TrackingMethod == "" {
+		return nil, fmt.Errorf("TrackingMethod is required")
+	}
+
+	// Validate tracking method value
+	validMethods := map[TrackingMethod]bool{
+		TrackingMethodLabel:              true,
+		TrackingMethodAnnotation:         true,
+		TrackingMethodAnnotationAndLabel: true,
+	}
+	if !validMethods[config.TrackingMethod] {
+		return nil, fmt.Errorf("invalid TrackingMethod: %s", config.TrackingMethod)
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+
+	// Use default config if not provided
+	graphConfig := config.GraphConfig
+	if graphConfig.ShardCount == 0 {
+		graphConfig = DefaultGraphConfig()
+	}
 
 	gc := &GraphCache{
-		graph:             NewResourceGraph(),
+		graph:             NewResourceGraph(graphConfig.ShardCount),
 		descendantTracker: NewDescendantTracker(),
 		typeRelationships: NewTypeRelationshipCache(),
 		trackingMethod:    config.TrackingMethod,
 		namespaces:        config.Namespaces,
+		serverURL:         config.ServerURL,
+		graphConfig:       graphConfig,
 		discoveredTypes:   make(map[schema.GroupKind]bool),
 		ctx:               ctx,
 		cancel:            cancel,
@@ -101,6 +142,7 @@ func NewGraphCache(config Config) (*GraphCache, error) {
 			ResourcesByApplication: make(map[string]int),
 			WatchesByType:          make(map[schema.GroupKind]bool),
 		},
+		prometheusMetrics: metrics.NewGraphCacheMetrics(""), // hostname can be empty for now
 	}
 
 	// Create watch manager with event handler
@@ -110,6 +152,7 @@ func NewGraphCache(config Config) (*GraphCache, error) {
 		config.TrackingMethod,
 		config.Namespaces,
 		gc.handleResourceEvent,
+		graphConfig, // Pass graph config for retry logic
 	)
 
 	// Create manifest discovery if repo server client is provided
@@ -143,6 +186,9 @@ func (gc *GraphCache) Start() error {
 
 	// Start periodic discovery (every 5 minutes)
 	go gc.periodicDiscovery()
+
+	// Start periodic metrics export (every 30 seconds)
+	go gc.periodicMetricsExport()
 
 	log.WithFields(log.Fields{
 		"component":         "graph-cache",
@@ -222,10 +268,10 @@ func (gc *GraphCache) DiscoverManagedResources() error {
 	gc.metricsLock.Unlock()
 
 	log.WithFields(log.Fields{
-		"component":   "graph-cache",
-		"resources":   totalDiscovered,
-		"types":       len(gc.discoveredTypes),
-		"duration_ms": time.Since(startTime).Milliseconds(),
+		"component":         "graph-cache",
+		"resources":         totalDiscovered,
+		"types":             len(gc.discoveredTypes),
+		"duration_ms":       time.Since(startTime).Milliseconds(),
 	}).Info("Resource discovery complete")
 
 	return nil
@@ -293,7 +339,10 @@ func (gc *GraphCache) addResourceToGraph(obj *unstructured.Unstructured) {
 	// Extract parent references
 	parents := gc.descendantTracker.ExtractParentReferences(obj)
 
-	// Create resource node
+	// Deep copy the object to avoid external modifications
+	objCopy := obj.DeepCopy()
+
+	// Create resource node with full object
 	node := &ResourceNode{
 		Key:             ToResourceKey(obj),
 		ResourceVersion: obj.GetResourceVersion(),
@@ -306,17 +355,18 @@ func (gc *GraphCache) addResourceToGraph(obj *unstructured.Unstructured) {
 			Annotations: obj.GetAnnotations(),
 			OwnerRefs:   obj.GetOwnerReferences(),
 		},
+		Resource: objCopy, // Store full object for cache hits
 	}
 
 	// Add to graph
 	gc.graph.AddOrUpdate(node)
 
 	log.WithFields(log.Fields{
-		"component": "graph-cache",
-		"app":       trackingInfo.AppName,
-		"kind":      node.Key.Kind,
-		"namespace": node.Key.Namespace,
-		"name":      node.Key.Name,
+		"component":  "graph-cache",
+		"app":        trackingInfo.AppName,
+		"kind":       node.Key.Kind,
+		"namespace":  node.Key.Namespace,
+		"name":       node.Key.Name,
 	}).Debug("Added resource to graph")
 }
 
@@ -435,7 +485,7 @@ func (gc *GraphCache) handleResourceEvent(eventType watch.EventType, obj *unstru
 
 // periodicDiscovery runs discovery periodically to catch new resources.
 func (gc *GraphCache) periodicDiscovery() {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(gc.graphConfig.DiscoveryInterval)
 	defer ticker.Stop()
 
 	for {
@@ -447,6 +497,66 @@ func (gc *GraphCache) periodicDiscovery() {
 				log.WithError(err).WithField("component", "graph-cache").Warn("Periodic discovery failed")
 			}
 		}
+	}
+}
+
+// periodicMetricsExport exports metrics to Prometheus periodically.
+func (gc *GraphCache) periodicMetricsExport() {
+	ticker := time.NewTicker(gc.graphConfig.MetricsExportInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-gc.ctx.Done():
+			return
+		case <-ticker.C:
+			gc.exportPrometheusMetrics()
+		}
+	}
+}
+
+// exportPrometheusMetrics exports current metrics to Prometheus.
+func (gc *GraphCache) exportPrometheusMetrics() {
+	if gc.prometheusMetrics == nil {
+		return
+	}
+
+	metrics := gc.GetMetrics()
+	server := gc.serverURL
+	if server == "" {
+		server = "default"
+	}
+
+	// Export basic metrics
+	gc.prometheusMetrics.SetTotalResources(server, metrics.TotalManagedResources)
+	gc.prometheusMetrics.SetWatchedTypes(server, len(metrics.WatchesByType))
+	gc.prometheusMetrics.SetApplications(server, metrics.UniqueApplications)
+
+	// Calculate memory usage (approximate)
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	gc.prometheusMetrics.SetMemoryBytes(server, int64(memStats.Alloc))
+
+	// Export relationship metrics
+	if gc.typeRelationships != nil {
+		allRels := gc.typeRelationships.GetAllRelationships()
+		highConfidence := 0
+		mediumConfidence := 0
+		lowConfidence := 0
+
+		for _, confidence := range allRels {
+			if confidence >= 50 {
+				highConfidence++
+			} else if confidence >= 10 {
+				mediumConfidence++
+			} else {
+				lowConfidence++
+			}
+		}
+
+		gc.prometheusMetrics.SetRelationshipsLearned("high", highConfidence)
+		gc.prometheusMetrics.SetRelationshipsLearned("medium", mediumConfidence)
+		gc.prometheusMetrics.SetRelationshipsLearned("low", lowConfidence)
 	}
 }
 
@@ -470,6 +580,8 @@ func (gc *GraphCache) GetMetrics() CacheMetrics {
 	gc.metrics.TotalManagedResources = graphMetrics.TotalResources
 	gc.metrics.ResourcesByType = graphMetrics.ResourcesByType
 	gc.metrics.ResourcesByApplication = graphMetrics.ResourcesByApp
+	gc.metrics.UniqueApplications = graphMetrics.UniqueApplications
+	gc.metrics.UniqueResourceTypes = graphMetrics.UniqueResourceTypes
 	gc.metrics.ActiveWatches = watchMetrics.ActiveWatches
 
 	// Deep copy for safety
@@ -491,6 +603,86 @@ func (gc *GraphCache) GetMetrics() CacheMetrics {
 	}
 
 	return metrics
+}
+
+// HealthStatus represents the health state of the graph cache.
+type HealthStatus struct {
+	Healthy            bool          `json:"healthy"`
+	TotalResources     int           `json:"totalResources"`
+	ActiveWatches      int           `json:"activeWatches"`
+	FailedWatches      []string      `json:"failedWatches,omitempty"`
+	LastDiscoveryTime  time.Time     `json:"lastDiscoveryTime"`
+	LastDiscoveryError string        `json:"lastDiscoveryError,omitempty"`
+	MemoryUsageMB      int64         `json:"memoryUsageMb"`
+	Alerts             []HealthAlert `json:"alerts,omitempty"`
+}
+
+// HealthAlert represents a health check alert.
+type HealthAlert struct {
+	Severity string `json:"severity"` // warning, critical
+	Message  string `json:"message"`
+}
+
+// HealthCheck performs a comprehensive health check of the graph cache.
+// Returns a HealthStatus with any alerts and overall health state.
+func (gc *GraphCache) HealthCheck() HealthStatus {
+	metrics := gc.GetMetrics()
+
+	status := HealthStatus{
+		Healthy:           true,
+		TotalResources:    metrics.TotalManagedResources,
+		ActiveWatches:     metrics.ActiveWatches,
+		LastDiscoveryTime: metrics.LastDiscoveryTime,
+	}
+
+	// Check 1: No resources after initial discovery
+	if metrics.DiscoveryRuns > 0 && metrics.TotalManagedResources == 0 {
+		status.Alerts = append(status.Alerts, HealthAlert{
+			Severity: "warning",
+			Message:  "No managed resources found after discovery",
+		})
+	}
+
+	// Check 2: No active watches
+	if metrics.ActiveWatches == 0 {
+		status.Alerts = append(status.Alerts, HealthAlert{
+			Severity: "critical",
+			Message:  "No active watches established",
+		})
+		status.Healthy = false
+	}
+
+	// Check 3: Stale discovery (only check if we've done at least one discovery)
+	if !metrics.LastDiscoveryTime.IsZero() && time.Since(metrics.LastDiscoveryTime) > 10*time.Minute {
+		status.Alerts = append(status.Alerts, HealthAlert{
+			Severity: "warning",
+			Message:  fmt.Sprintf("Discovery stale (last run: %v ago)", time.Since(metrics.LastDiscoveryTime)),
+		})
+	}
+
+	// Check 4: High memory usage (>2GB)
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	status.MemoryUsageMB = int64(memStats.Alloc / 1024 / 1024)
+
+	if status.MemoryUsageMB > 2048 {
+		status.Alerts = append(status.Alerts, HealthAlert{
+			Severity: "warning",
+			Message:  fmt.Sprintf("High memory usage: %dMB", status.MemoryUsageMB),
+		})
+	}
+
+	// Check 5: Failed watches (if watch manager provides this info)
+	watchMetrics := gc.watchManager.GetMetrics()
+	if watchMetrics.LastDiscoveryTime.IsZero() {
+		// Watch manager hasn't completed discovery yet
+		status.Alerts = append(status.Alerts, HealthAlert{
+			Severity: "warning",
+			Message:  "Watch manager discovery not yet completed",
+		})
+	}
+
+	return status
 }
 
 // GetResourcesByApplication returns all resources managed by an application.

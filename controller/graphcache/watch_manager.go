@@ -36,6 +36,9 @@ type SelectiveWatchManager struct {
 	// Callbacks
 	onResourceEvent ResourceEventHandler
 
+	// Configuration
+	graphConfig GraphConfig
+
 	// Context for cancellation
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -84,6 +87,7 @@ func NewSelectiveWatchManager(
 	trackingMethod TrackingMethod,
 	namespaces []string,
 	handler ResourceEventHandler,
+	graphConfig GraphConfig,
 ) *SelectiveWatchManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -93,6 +97,7 @@ func NewSelectiveWatchManager(
 		trackingMethod:  trackingMethod,
 		namespaces:      namespaces,
 		onResourceEvent: handler,
+		graphConfig:     graphConfig,
 		watches:         make(map[schema.GroupKind]*WatchHandle),
 		ctx:             ctx,
 		cancel:          cancel,
@@ -334,7 +339,7 @@ func (wm *SelectiveWatchManager) createWatch(gk schema.GroupKind, gvr schema.Gro
 	return handle, nil
 }
 
-// startWatcher establishes a watch and handles auto-recovery
+// startWatcher establishes a watch and handles auto-recovery with backoff and max retry protection
 func (wm *SelectiveWatchManager) startWatcher(ctx context.Context, gvr schema.GroupVersionResource, namespace string, listOpts metav1.ListOptions, handle *WatchHandle) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -347,8 +352,11 @@ func (wm *SelectiveWatchManager) startWatcher(ctx context.Context, gvr schema.Gr
 		}
 	}()
 
-	minRetry := 1 * time.Second
-	maxRetry := 30 * time.Second
+	maxConsecutiveFailures := wm.graphConfig.MaxConsecutiveFailures
+	consecutiveFailures := 0
+
+	minRetry := wm.graphConfig.MinRetryInterval
+	maxRetry := wm.graphConfig.MaxRetryInterval
 	retryInterval := minRetry
 
 	for {
@@ -357,6 +365,18 @@ func (wm *SelectiveWatchManager) startWatcher(ctx context.Context, gvr schema.Gr
 		case <-ctx.Done():
 			return
 		default:
+		}
+
+		// Goroutine leak protection: stop after too many consecutive failures
+		if consecutiveFailures >= maxConsecutiveFailures {
+			log.WithFields(log.Fields{
+				"component":          "graph-cache",
+				"group":              handle.GroupKind.Group,
+				"kind":               handle.GroupKind.Kind,
+				"namespace":          namespace,
+				"consecutive_fails":  consecutiveFailures,
+			}).Error("Max consecutive watch failures exceeded, stopping watcher to prevent goroutine leak")
+			return
 		}
 
 		// Establish watch
@@ -370,11 +390,14 @@ func (wm *SelectiveWatchManager) startWatcher(ctx context.Context, gvr schema.Gr
 		}
 
 		if err != nil {
+			consecutiveFailures++
+
 			log.WithFields(log.Fields{
-				"component": "graph-cache",
-				"group":     handle.GroupKind.Group,
-				"kind":      handle.GroupKind.Kind,
-				"error":     err,
+				"component":         "graph-cache",
+				"group":             handle.GroupKind.Group,
+				"kind":              handle.GroupKind.Kind,
+				"error":             err,
+				"consecutive_fails": consecutiveFailures,
 			}).Warnf("Failed to watch resource, retrying in %v", retryInterval)
 
 			// Backoff
@@ -390,7 +413,8 @@ func (wm *SelectiveWatchManager) startWatcher(ctx context.Context, gvr schema.Gr
 			}
 		}
 
-		// Watch established successfully
+		// Watch established successfully - reset failure counter
+		consecutiveFailures = 0
 		retryInterval = minRetry
 
 		// Process events

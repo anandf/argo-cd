@@ -35,6 +35,7 @@ func TestNewSelectiveWatchManager(t *testing.T) {
 		TrackingMethodLabel,
 		[]string{"argocd"},
 		nil,
+		DefaultGraphConfig(),
 	)
 
 	assert.NotNil(t, wm)
@@ -72,6 +73,7 @@ func TestEnsureWatch_ClusterScoped(t *testing.T) {
 		TrackingMethodLabel,
 		[]string{"argocd"}, // Should be ignored for cluster scoped
 		nil,
+		DefaultGraphConfig(),
 	)
 
 	gk := schema.GroupKind{Group: "", Kind: "Node"}
@@ -126,6 +128,7 @@ func TestEnsureWatch_DynamicNamespace(t *testing.T) {
 		TrackingMethodLabel,
 		namespaces,
 		nil,
+		DefaultGraphConfig(),
 	)
 
 	gk := schema.GroupKind{Group: "apps", Kind: "Deployment"}

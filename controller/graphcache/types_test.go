@@ -11,14 +11,52 @@ import (
 	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 )
 
+func TestDefaultGraphConfig(t *testing.T) {
+	cfg := DefaultGraphConfig()
+
+	assert.Equal(t, 32, cfg.ShardCount, "Default shard count should be 32")
+	assert.Equal(t, 5*time.Minute, cfg.DiscoveryInterval, "Default discovery interval should be 5m")
+	assert.Equal(t, 10*time.Second, cfg.InitialDiscoveryDelay, "Default initial discovery delay should be 10s")
+	assert.Equal(t, 30*time.Second, cfg.MetricsExportInterval, "Default metrics export interval should be 30s")
+	assert.Equal(t, 1*time.Minute, cfg.PersistenceInterval, "Default persistence interval should be 1m")
+	assert.Equal(t, 100, cfg.MaxConsecutiveFailures, "Default max consecutive failures should be 100")
+	assert.Equal(t, 1*time.Second, cfg.MinRetryInterval, "Default min retry interval should be 1s")
+	assert.Equal(t, 30*time.Second, cfg.MaxRetryInterval, "Default max retry interval should be 30s")
+}
+
 func TestNewResourceGraph(t *testing.T) {
-	graph := NewResourceGraph()
-	assert.NotNil(t, graph)
-	assert.Equal(t, 0, graph.Size())
+	t.Run("default shard count", func(t *testing.T) {
+		graph := NewResourceGraph(32)
+		assert.NotNil(t, graph)
+		assert.Equal(t, 0, graph.Size())
+		assert.Equal(t, 32, graph.shardCount)
+		assert.Len(t, graph.shards, 32)
+	})
+
+	t.Run("custom shard count", func(t *testing.T) {
+		graph := NewResourceGraph(16)
+		assert.NotNil(t, graph)
+		assert.Equal(t, 16, graph.shardCount)
+		assert.Len(t, graph.shards, 16)
+	})
+
+	t.Run("zero shard count defaults to 32", func(t *testing.T) {
+		graph := NewResourceGraph(0)
+		assert.NotNil(t, graph)
+		assert.Equal(t, 32, graph.shardCount)
+		assert.Len(t, graph.shards, 32)
+	})
+
+	t.Run("negative shard count defaults to 32", func(t *testing.T) {
+		graph := NewResourceGraph(-5)
+		assert.NotNil(t, graph)
+		assert.Equal(t, 32, graph.shardCount)
+		assert.Len(t, graph.shards, 32)
+	})
 }
 
 func TestResourceGraph_AddOrUpdate(t *testing.T) {
-	graph := NewResourceGraph()
+	graph := NewResourceGraph(32)
 
 	node := &ResourceNode{
 		Key: kube.ResourceKey{
@@ -59,7 +97,7 @@ func TestResourceGraph_AddOrUpdate(t *testing.T) {
 }
 
 func TestResourceGraph_Delete(t *testing.T) {
-	graph := NewResourceGraph()
+	graph := NewResourceGraph(32)
 
 	node := &ResourceNode{
 		Key: kube.ResourceKey{
@@ -82,7 +120,7 @@ func TestResourceGraph_Delete(t *testing.T) {
 }
 
 func TestResourceGraph_GetByApplication(t *testing.T) {
-	graph := NewResourceGraph()
+	graph := NewResourceGraph(32)
 
 	// Add multiple resources for different applications
 	nodes := []*ResourceNode{
@@ -118,7 +156,7 @@ func TestResourceGraph_GetByApplication(t *testing.T) {
 }
 
 func TestResourceGraph_GetByType(t *testing.T) {
-	graph := NewResourceGraph()
+	graph := NewResourceGraph(32)
 
 	deploymentGK := schema.GroupKind{Group: "apps", Kind: "Deployment"}
 	serviceGK := schema.GroupKind{Group: "", Kind: "Service"}
@@ -150,7 +188,7 @@ func TestResourceGraph_GetByType(t *testing.T) {
 }
 
 func TestResourceGraph_ParentChildRelationships(t *testing.T) {
-	graph := NewResourceGraph()
+	graph := NewResourceGraph(32)
 
 	deploymentKey := kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "deploy1"}
 	replicaSetKey := kube.ResourceKey{Group: "apps", Kind: "ReplicaSet", Namespace: "default", Name: "rs1"}
@@ -200,7 +238,7 @@ func TestResourceGraph_ParentChildRelationships(t *testing.T) {
 }
 
 func TestResourceGraph_GetAllTypes(t *testing.T) {
-	graph := NewResourceGraph()
+	graph := NewResourceGraph(32)
 
 	nodes := []*ResourceNode{
 		{Key: kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "deploy1"}},
@@ -227,7 +265,7 @@ func TestResourceGraph_GetAllTypes(t *testing.T) {
 }
 
 func TestResourceGraph_GetAllApplications(t *testing.T) {
-	graph := NewResourceGraph()
+	graph := NewResourceGraph(32)
 
 	nodes := []*ResourceNode{
 		{Key: kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "deploy1"}, ManagedBy: "app1"},
@@ -253,7 +291,7 @@ func TestResourceGraph_GetAllApplications(t *testing.T) {
 }
 
 func TestResourceGraph_GetMetrics(t *testing.T) {
-	graph := NewResourceGraph()
+	graph := NewResourceGraph(32)
 
 	nodes := []*ResourceNode{
 		{Key: kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "deploy1"}, ManagedBy: "app1"},
@@ -277,7 +315,7 @@ func TestResourceGraph_GetMetrics(t *testing.T) {
 }
 
 func TestResourceGraph_DeleteWithRelationships(t *testing.T) {
-	graph := NewResourceGraph()
+	graph := NewResourceGraph(32)
 
 	parentKey := kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "deploy1"}
 	childKey := kube.ResourceKey{Group: "apps", Kind: "ReplicaSet", Namespace: "default", Name: "rs1"}
@@ -313,7 +351,7 @@ func TestResourceGraph_DeleteWithRelationships(t *testing.T) {
 }
 
 func TestResourceGraph_ConcurrentAccess(t *testing.T) {
-	graph := NewResourceGraph()
+	graph := NewResourceGraph(32)
 
 	// Test concurrent adds
 	done := make(chan bool)
@@ -353,4 +391,237 @@ func TestResourceGraph_ConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		<-done
 	}
+}
+
+// TestResourceGraph_LabelIndexOptimization tests the optimized label index update logic
+func TestResourceGraph_LabelIndexOptimization(t *testing.T) {
+	graph := NewResourceGraph(32)
+
+	t.Run("add node with labels", func(t *testing.T) {
+		node := &ResourceNode{
+			Key: kube.ResourceKey{
+				Group:     "apps",
+				Kind:      "Deployment",
+				Namespace: "default",
+				Name:      "test-deploy",
+			},
+			ManagedBy: "app1",
+			Info: &ResourceMetadata{
+				Labels: map[string]string{
+					"env":     "prod",
+					"version": "v1",
+					"team":    "platform",
+				},
+			},
+		}
+
+		graph.AddOrUpdate(node)
+
+		// Verify all labels are indexed
+		envNodes := graph.GetByLabel("env", "prod")
+		assert.Len(t, envNodes, 1)
+		assert.Equal(t, "test-deploy", envNodes[0].Key.Name)
+
+		versionNodes := graph.GetByLabel("version", "v1")
+		assert.Len(t, versionNodes, 1)
+
+		teamNodes := graph.GetByLabel("team", "platform")
+		assert.Len(t, teamNodes, 1)
+	})
+
+	t.Run("update with unchanged labels", func(t *testing.T) {
+		node := &ResourceNode{
+			Key: kube.ResourceKey{
+				Group:     "apps",
+				Kind:      "Deployment",
+				Namespace: "default",
+				Name:      "test-deploy",
+			},
+			ManagedBy: "app1",
+			Info: &ResourceMetadata{
+				Labels: map[string]string{
+					"env":     "prod",
+					"version": "v1",
+					"team":    "platform",
+				},
+			},
+		}
+
+		// Update with same labels
+		graph.AddOrUpdate(node)
+
+		// Verify labels still indexed correctly
+		envNodes := graph.GetByLabel("env", "prod")
+		assert.Len(t, envNodes, 1)
+		versionNodes := graph.GetByLabel("version", "v1")
+		assert.Len(t, versionNodes, 1)
+		teamNodes := graph.GetByLabel("team", "platform")
+		assert.Len(t, teamNodes, 1)
+	})
+
+	t.Run("update with changed label value", func(t *testing.T) {
+		node := &ResourceNode{
+			Key: kube.ResourceKey{
+				Group:     "apps",
+				Kind:      "Deployment",
+				Namespace: "default",
+				Name:      "test-deploy",
+			},
+			ManagedBy: "app1",
+			Info: &ResourceMetadata{
+				Labels: map[string]string{
+					"env":     "staging", // Changed from prod to staging
+					"version": "v1",
+					"team":    "platform",
+				},
+			},
+		}
+
+		graph.AddOrUpdate(node)
+
+		// Old value should not be indexed
+		prodNodes := graph.GetByLabel("env", "prod")
+		assert.Len(t, prodNodes, 0)
+
+		// New value should be indexed
+		stagingNodes := graph.GetByLabel("env", "staging")
+		assert.Len(t, stagingNodes, 1)
+		assert.Equal(t, "test-deploy", stagingNodes[0].Key.Name)
+
+		// Unchanged labels still indexed
+		versionNodes := graph.GetByLabel("version", "v1")
+		assert.Len(t, versionNodes, 1)
+	})
+
+	t.Run("update with added labels", func(t *testing.T) {
+		node := &ResourceNode{
+			Key: kube.ResourceKey{
+				Group:     "apps",
+				Kind:      "Deployment",
+				Namespace: "default",
+				Name:      "test-deploy",
+			},
+			ManagedBy: "app1",
+			Info: &ResourceMetadata{
+				Labels: map[string]string{
+					"env":      "staging",
+					"version":  "v1",
+					"team":     "platform",
+					"replicas": "3", // New label
+				},
+			},
+		}
+
+		graph.AddOrUpdate(node)
+
+		// New label should be indexed
+		replicaNodes := graph.GetByLabel("replicas", "3")
+		assert.Len(t, replicaNodes, 1)
+		assert.Equal(t, "test-deploy", replicaNodes[0].Key.Name)
+
+		// Existing labels still indexed
+		stagingNodes := graph.GetByLabel("env", "staging")
+		assert.Len(t, stagingNodes, 1)
+	})
+
+	t.Run("update with removed labels", func(t *testing.T) {
+		node := &ResourceNode{
+			Key: kube.ResourceKey{
+				Group:     "apps",
+				Kind:      "Deployment",
+				Namespace: "default",
+				Name:      "test-deploy",
+			},
+			ManagedBy: "app1",
+			Info: &ResourceMetadata{
+				Labels: map[string]string{
+					"env":     "staging",
+					"version": "v1",
+					// "team" removed
+					// "replicas" removed
+				},
+			},
+		}
+
+		graph.AddOrUpdate(node)
+
+		// Removed labels should not be indexed
+		teamNodes := graph.GetByLabel("team", "platform")
+		assert.Len(t, teamNodes, 0)
+		replicaNodes := graph.GetByLabel("replicas", "3")
+		assert.Len(t, replicaNodes, 0)
+
+		// Remaining labels still indexed
+		stagingNodes := graph.GetByLabel("env", "staging")
+		assert.Len(t, stagingNodes, 1)
+		versionNodes := graph.GetByLabel("version", "v1")
+		assert.Len(t, versionNodes, 1)
+	})
+
+	t.Run("update with mixed changes", func(t *testing.T) {
+		node := &ResourceNode{
+			Key: kube.ResourceKey{
+				Group:     "apps",
+				Kind:      "Deployment",
+				Namespace: "default",
+				Name:      "test-deploy",
+			},
+			ManagedBy: "app1",
+			Info: &ResourceMetadata{
+				Labels: map[string]string{
+					"env":      "prod",      // Changed back from staging to prod
+					"version":  "v2",        // Changed from v1 to v2
+					"region":   "us-west-2", // New label
+					// "version" kept but value changed
+				},
+			},
+		}
+
+		graph.AddOrUpdate(node)
+
+		// Changed labels should reflect new values
+		prodNodes := graph.GetByLabel("env", "prod")
+		assert.Len(t, prodNodes, 1)
+		stagingNodes := graph.GetByLabel("env", "staging")
+		assert.Len(t, stagingNodes, 0)
+
+		v2Nodes := graph.GetByLabel("version", "v2")
+		assert.Len(t, v2Nodes, 1)
+		v1Nodes := graph.GetByLabel("version", "v1")
+		assert.Len(t, v1Nodes, 0)
+
+		// New label should be indexed
+		regionNodes := graph.GetByLabel("region", "us-west-2")
+		assert.Len(t, regionNodes, 1)
+	})
+
+	t.Run("update removes all labels", func(t *testing.T) {
+		node := &ResourceNode{
+			Key: kube.ResourceKey{
+				Group:     "apps",
+				Kind:      "Deployment",
+				Namespace: "default",
+				Name:      "test-deploy",
+			},
+			ManagedBy: "app1",
+			Info: &ResourceMetadata{
+				Labels: map[string]string{}, // All labels removed
+			},
+		}
+
+		graph.AddOrUpdate(node)
+
+		// All labels should be removed from index
+		prodNodes := graph.GetByLabel("env", "prod")
+		assert.Len(t, prodNodes, 0)
+		v2Nodes := graph.GetByLabel("version", "v2")
+		assert.Len(t, v2Nodes, 0)
+		regionNodes := graph.GetByLabel("region", "us-west-2")
+		assert.Len(t, regionNodes, 0)
+
+		// Node should still exist in graph
+		retrieved, exists := graph.Get(node.Key)
+		assert.True(t, exists)
+		assert.Equal(t, "test-deploy", retrieved.Key.Name)
+	})
 }

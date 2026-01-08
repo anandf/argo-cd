@@ -104,8 +104,10 @@ func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (cache.Clu
 	gcConfig := a.config
 	gcConfig.DynamicClient = dynamicClient
 	gcConfig.DiscoveryClient = discoveryClient
+	gcConfig.ServerURL = cluster.Server // Set server URL for metrics
 
-	gc, err := NewGraphCache(gcConfig)
+	// Use the adapter's context for graph cache lifecycle
+	gc, err := NewGraphCache(a.ctx, gcConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create graph cache for cluster %s: %w", cluster.Server, err)
 	}
@@ -129,7 +131,7 @@ func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (cache.Clu
 
 	// Start persistence loop
 	if a.store != nil {
-		go a.runPersistenceLoop(cluster.Server, gc)
+		go a.runPersistenceLoop(cluster.Server, gc, gcConfig.GraphConfig.PersistenceInterval)
 	}
 
 	clusterCache = &clusterCacheAdapter{
@@ -141,8 +143,8 @@ func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (cache.Clu
 	return clusterCache, nil
 }
 
-func (a *GraphLiveStateCache) runPersistenceLoop(clusterServer string, gc *GraphCache) {
-	ticker := time.NewTicker(1 * time.Minute) // Configurable?
+func (a *GraphLiveStateCache) runPersistenceLoop(clusterServer string, gc *GraphCache, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -366,9 +368,13 @@ func (c *clusterCacheAdapter) GetAPIResources() []kube.APIResourceInfo {
 
 // IsNamespaced returns whether a GroupKind is namespaced
 func (c *clusterCacheAdapter) IsNamespaced(gk schema.GroupKind) (bool, error) {
-	// First check if we already watch this type
-	if c.graphCache.watchManager.watches[gk] != nil {
-		return c.graphCache.watchManager.watches[gk].IsNamespaced, nil
+	// First check if we already watch this type (with proper locking)
+	c.graphCache.watchManager.watchLock.RLock()
+	handle, exists := c.graphCache.watchManager.watches[gk]
+	c.graphCache.watchManager.watchLock.RUnlock()
+
+	if exists {
+		return handle.IsNamespaced, nil
 	}
 
 	// Fallback to discovery
@@ -426,128 +432,119 @@ func (c *clusterCacheAdapter) iterateHierarchyRecursive(key kube.ResourceKey, ac
 }
 
 // IterateHierarchyV2 iterates resource tree starting from the specified top level resources and executes callback for each resource in the tree
+// Properly implements recursive traversal with cycle detection
 func (c *clusterCacheAdapter) IterateHierarchyV2(keys []kube.ResourceKey, action func(resource *cache.Resource, namespaceResources map[kube.ResourceKey]*cache.Resource) bool) {
-	for _, key := range keys {
+	visited := make(map[kube.ResourceKey]bool)
+
+	var traverse func(key kube.ResourceKey)
+	traverse = func(key kube.ResourceKey) {
+		// Cycle detection
+		if visited[key] {
+			return
+		}
+		visited[key] = true
+
 		node, exists := c.graphCache.graph.Get(key)
 		if !exists {
-			continue
+			return
 		}
 
 		res := nodeToCacheResource(node)
+
+		// Call action - if it returns false, stop traversing this branch
 		if !action(res, nil) {
-			continue
+			return
 		}
 
-		// Note: Shallow implementation for now as gitops-engine usually handles recursion if needed or we'd need to adapt recursion logic for cache.Resource
-		// To match interface fully we should probably recurse, but given constraints sticking to shallow or simple loop.
-		// Actually, I should probably use `iterateHierarchyRecursive` logic adapted for `cache.Resource`.
-		// But for now, simple loop over children.
+		// Recursively traverse children
 		children := c.graphCache.graph.GetChildren(key)
 		for _, child := range children {
-			childRes := nodeToCacheResource(child)
-			action(childRes, nil)
+			traverse(child.Key)
 		}
+	}
+
+	// Traverse from each top-level key
+	for _, key := range keys {
+		traverse(key)
 	}
 }
 
 // GetManagedLiveObjsForApp returns live objects managed by the application
+// Returns objects from cache (no API calls) for performance
 func (c *clusterCacheAdapter) GetManagedLiveObjsForApp(app *appv1.Application, targetObjs []*unstructured.Unstructured) (map[kube.ResourceKey]*unstructured.Unstructured, error) {
 	appName := app.InstanceName(app.Namespace)
 	resources := c.graphCache.GetResourcesByApplication(appName)
-	result := make(map[kube.ResourceKey]*unstructured.Unstructured)
-	var lock sync.Mutex
+	result := make(map[kube.ResourceKey]*unstructured.Unstructured, len(resources))
 
-	err := kube.RunAllAsync(len(resources), func(i int) error {
-		res := resources[i]
+	// Build map of target object keys for quick lookup
+	targetKeys := make(map[kube.ResourceKey]bool, len(targetObjs))
+	for _, obj := range targetObjs {
+		targetKeys[kube.GetResourceKey(obj)] = true
+	}
+
+	// Return cached objects (no API calls!)
+	for _, res := range resources {
 		key := res.Key
 
-		var gvr schema.GroupVersionResource
-		found := false
-
-		apiResources := c.GetAPIResources()
-		for _, r := range apiResources {
-			if r.GroupKind.Group == key.Group && r.GroupKind.Kind == key.Kind {
-				if r.GroupVersionResource.Version == res.Version {
-					gvr = r.GroupVersionResource
-					found = true
-					break
-				}
-			}
+		// Only return objects that are in the target list (if provided)
+		if len(targetObjs) > 0 && !targetKeys[key] {
+			continue
 		}
 
-		if !found {
-			for _, r := range apiResources {
-				if r.GroupKind.Group == key.Group && r.GroupKind.Kind == key.Kind {
-					gvr = r.GroupVersionResource
-					found = true
-					break
-				}
-			}
-		}
-
-		if !found {
-			return nil
-		}
-
-		client := c.graphCache.GetDynamicClient()
-		var obj *unstructured.Unstructured
-		var err error
-
-		if key.Namespace != "" {
-			obj, err = client.Resource(gvr).Namespace(key.Namespace).Get(context.Background(), key.Name, metav1.GetOptions{})
+		// Return the cached object
+		if res.Resource != nil {
+			// Deep copy to prevent external modifications
+			result[key] = res.Resource.DeepCopy()
 		} else {
-			obj, err = client.Resource(gvr).Get(context.Background(), key.Name, metav1.GetOptions{})
+			// Fallback: resource was added before we started storing full objects
+			// This should be rare after initial cache population
+			log.WithFields(log.Fields{
+				"component": "graph-cache",
+				"key":       key,
+			}).Warn("Resource in cache but full object not stored")
 		}
-
-		if err != nil {
-			return nil
-		}
-
-		lock.Lock()
-		result[key] = obj
-		lock.Unlock()
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch live objects: %w", err)
 	}
 
 	return result, nil
 }
 
 // GetManagedLiveObjs returns managed objects
+// Returns cached objects matching the isManaged predicate (no API calls)
 func (c *clusterCacheAdapter) GetManagedLiveObjs(targetObjs []*unstructured.Unstructured, isManaged func(r *cache.Resource) bool) (map[kube.ResourceKey]*unstructured.Unstructured, error) {
-	managedKeys := make([]kube.ResourceKey, 0)
+	result := make(map[kube.ResourceKey]*unstructured.Unstructured)
+
+	// Build map of target object keys for quick lookup
+	targetKeys := make(map[kube.ResourceKey]bool)
+	for _, obj := range targetObjs {
+		targetKeys[kube.GetResourceKey(obj)] = true
+	}
+
+	// Get all nodes from the cache
 	allNodes := c.graphCache.graph.GetAllNodes()
 
 	for _, node := range allNodes {
-		res := nodeToCacheResource(node)
-		if isManaged(res) {
-			managedKeys = append(managedKeys, node.Key)
+		key := node.Key
+
+		// Check if in target list (if provided)
+		if len(targetObjs) > 0 && !targetKeys[key] {
+			continue
 		}
-	}
 
-	keysToFetch := make(map[kube.ResourceKey]bool)
-	for _, key := range managedKeys {
-		keysToFetch[key] = true
-	}
-	for _, obj := range targetObjs {
-		keysToFetch[kube.GetResourceKey(obj)] = true
-	}
+		// Check if managed using the provided predicate
+		res := nodeToCacheResource(node)
+		if isManaged != nil && !isManaged(res) {
+			continue
+		}
 
-	result := make(map[kube.ResourceKey]*unstructured.Unstructured)
-	keyList := make([]kube.ResourceKey, 0, len(keysToFetch))
-	for k := range keysToFetch {
-		keyList = append(keyList, k)
-	}
-
-	err := kube.RunAllAsync(len(keyList), func(i int) error {
-		// Simplified fetch logic for generic method (reuses dynamic client)
-		// In production, would deduplicate with GetManagedLiveObjsForApp
-		return nil
-	})
-	if err != nil {
-		return nil, err
+		// Return the cached object (no API call!)
+		if node.Resource != nil {
+			result[key] = node.Resource.DeepCopy()
+		} else {
+			log.WithFields(log.Fields{
+				"component": "graph-cache",
+				"key":       key,
+			}).Warn("Resource in cache but full object not stored")
+		}
 	}
 
 	return result, nil

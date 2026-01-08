@@ -6,12 +6,50 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 )
 
-const ShardCount = 32
+const ShardCount = 32 // Deprecated: Use GraphConfig.ShardCount instead
+
+// GraphConfig contains tunable parameters for the graph cache.
+// These values allow optimization for different cluster sizes and performance requirements.
+type GraphConfig struct {
+	// Sharding
+	ShardCount int // Number of shards for the resource graph (default: 32)
+
+	// Discovery
+	DiscoveryInterval     time.Duration // Interval for periodic resource discovery (default: 5m)
+	InitialDiscoveryDelay time.Duration // Delay before first discovery run (default: 10s)
+
+	// Metrics
+	MetricsExportInterval time.Duration // Interval for exporting Prometheus metrics (default: 30s)
+
+	// Persistence
+	PersistenceInterval time.Duration // Interval for persisting graph state (default: 1m)
+
+	// Watch retry
+	MaxConsecutiveFailures int           // Max consecutive watch failures before stopping (default: 100)
+	MinRetryInterval       time.Duration // Minimum retry interval for failed watches (default: 1s)
+	MaxRetryInterval       time.Duration // Maximum retry interval for failed watches (default: 30s)
+}
+
+// DefaultGraphConfig returns the default configuration for the graph cache.
+// These defaults are optimized for medium-sized clusters (100-500 applications).
+func DefaultGraphConfig() GraphConfig {
+	return GraphConfig{
+		ShardCount:             32,
+		DiscoveryInterval:      5 * time.Minute,
+		InitialDiscoveryDelay:  10 * time.Second,
+		MetricsExportInterval:  30 * time.Second,
+		PersistenceInterval:    1 * time.Minute,
+		MaxConsecutiveFailures: 100,
+		MinRetryInterval:       1 * time.Second,
+		MaxRetryInterval:       30 * time.Second,
+	}
+}
 
 // ParentRef represents a reference to a parent resource, including UID.
 type ParentRef struct {
@@ -46,6 +84,10 @@ type ResourceNode struct {
 	// Metadata replacement for full object
 	Info *ResourceMetadata
 
+	// Full resource object (for cache hits without API calls)
+	// This increases memory usage but prevents unnecessary API calls
+	Resource *unstructured.Unstructured
+
 	// Metadata
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -63,13 +105,23 @@ type GraphShard struct {
 // ResourceGraph is the core graph structure storing all managed resources.
 // It provides efficient lookups by resource key, application, and type.
 type ResourceGraph struct {
-	shards [ShardCount]*GraphShard
+	shards     []*GraphShard
+	shardCount int
 }
 
-// NewResourceGraph creates a new empty resource graph.
-func NewResourceGraph() *ResourceGraph {
-	g := &ResourceGraph{}
-	for i := 0; i < ShardCount; i++ {
+// NewResourceGraph creates a new empty resource graph with the specified shard count.
+// If shardCount is 0 or negative, it defaults to 32.
+func NewResourceGraph(shardCount int) *ResourceGraph {
+	if shardCount <= 0 {
+		shardCount = 32
+	}
+
+	g := &ResourceGraph{
+		shards:     make([]*GraphShard, shardCount),
+		shardCount: shardCount,
+	}
+
+	for i := 0; i < shardCount; i++ {
 		g.shards[i] = &GraphShard{
 			nodes:      make(map[kube.ResourceKey]*ResourceNode),
 			appIndex:   make(map[string]map[kube.ResourceKey]bool),
@@ -83,7 +135,7 @@ func NewResourceGraph() *ResourceGraph {
 func (g *ResourceGraph) getShard(key kube.ResourceKey) *GraphShard {
 	h := fnv.New32a()
 	h.Write([]byte(key.String()))
-	index := h.Sum32() % ShardCount
+	index := h.Sum32() % uint32(g.shardCount)
 	return g.shards[index]
 }
 
@@ -143,31 +195,58 @@ func (g *ResourceGraph) AddOrUpdate(node *ResourceNode) {
 		}
 	}
 
-	// Update Label Index
-	// 1. Remove old labels
+	// Update Label Index (optimized: only update changed labels)
+	// Calculate delta (only changed labels)
+	var toRemove []struct{ key, value string }
+	var toAdd []struct{ key, value string }
+
+	// Find labels to remove (present in old but not in new, or value changed)
 	if oldLabels != nil {
-		for k, v := range oldLabels {
-			if shard.labelIndex[k] != nil && shard.labelIndex[k][v] != nil {
-				delete(shard.labelIndex[k][v], node.Key)
-				// Cleanup empty maps if desired, but expensive and usually not needed for labels which have high cardinality anyway
-				if len(shard.labelIndex[k][v]) == 0 {
-					delete(shard.labelIndex[k], v)
-				}
+		for k, oldVal := range oldLabels {
+			if node.Info == nil || node.Info.Labels == nil {
+				// All old labels should be removed
+				toRemove = append(toRemove, struct{ key, value string }{k, oldVal})
+			} else if newVal, exists := node.Info.Labels[k]; !exists || newVal != oldVal {
+				// Label removed or value changed
+				toRemove = append(toRemove, struct{ key, value string }{k, oldVal})
 			}
 		}
 	}
 
-	// 2. Add new labels
+	// Find labels to add (present in new but not in old, or value changed)
 	if node.Info != nil && node.Info.Labels != nil {
-		for k, v := range node.Info.Labels {
-			if shard.labelIndex[k] == nil {
-				shard.labelIndex[k] = make(map[string]map[kube.ResourceKey]bool)
+		for k, newVal := range node.Info.Labels {
+			if oldLabels == nil {
+				// All new labels should be added
+				toAdd = append(toAdd, struct{ key, value string }{k, newVal})
+			} else if oldVal, exists := oldLabels[k]; !exists || oldVal != newVal {
+				// Label added or value changed
+				toAdd = append(toAdd, struct{ key, value string }{k, newVal})
 			}
-			if shard.labelIndex[k][v] == nil {
-				shard.labelIndex[k][v] = make(map[kube.ResourceKey]bool)
-			}
-			shard.labelIndex[k][v][node.Key] = true
 		}
+	}
+
+	// Only update changed labels (reduces lock contention and map operations)
+	for _, label := range toRemove {
+		if shard.labelIndex[label.key] != nil && shard.labelIndex[label.key][label.value] != nil {
+			delete(shard.labelIndex[label.key][label.value], node.Key)
+			if len(shard.labelIndex[label.key][label.value]) == 0 {
+				delete(shard.labelIndex[label.key], label.value)
+			}
+			if len(shard.labelIndex[label.key]) == 0 {
+				delete(shard.labelIndex, label.key)
+			}
+		}
+	}
+
+	for _, label := range toAdd {
+		if shard.labelIndex[label.key] == nil {
+			shard.labelIndex[label.key] = make(map[string]map[kube.ResourceKey]bool)
+		}
+		if shard.labelIndex[label.key][label.value] == nil {
+			shard.labelIndex[label.key][label.value] = make(map[kube.ResourceKey]bool)
+		}
+		shard.labelIndex[label.key][label.value][node.Key] = true
 	}
 
 	shard.lock.Unlock()
