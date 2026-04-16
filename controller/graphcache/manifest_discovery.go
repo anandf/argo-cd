@@ -3,12 +3,10 @@ package graphcache
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -432,19 +430,6 @@ func (m *ManifestDiscovery) GetCacheStats() map[string]interface{} {
 	return stats
 }
 
-// extractServiceAccountName extracts the service account name from a pod spec
-// This is used to watch for ServiceAccount resources
-func extractServiceAccountName(podSpec *corev1.PodSpec) string {
-	if podSpec.ServiceAccountName != "" {
-		return podSpec.ServiceAccountName
-	}
-	// Deprecated field, but still check it
-	if podSpec.DeprecatedServiceAccount != "" {
-		return podSpec.DeprecatedServiceAccount
-	}
-	return ""
-}
-
 // isWorkloadResource returns true if the GVK is a workload resource that has a pod template
 func isWorkloadResource(gvk schema.GroupVersionKind) bool {
 	if gvk.Group == "apps" && gvk.Version == "v1" {
@@ -462,15 +447,3 @@ func isWorkloadResource(gvk schema.GroupVersionKind) bool {
 	return false
 }
 
-// parseGVKFromString parses a GVK string in format "group/version/kind"
-func parseGVKFromString(s string) (schema.GroupVersionKind, error) {
-	parts := strings.Split(s, "/")
-	if len(parts) != 3 {
-		return schema.GroupVersionKind{}, fmt.Errorf("invalid GVK format: %s", s)
-	}
-	return schema.GroupVersionKind{
-		Group:   parts[0],
-		Version: parts[1],
-		Kind:    parts[2],
-	}, nil
-}

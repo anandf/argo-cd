@@ -262,12 +262,9 @@ func (wm *SelectiveWatchManager) extendWatch(handle *WatchHandle, namespace stri
 		return false, nil // Already watching this namespace
 	}
 
-	// Prepare list opts
+	// Watch all resources without label selectors. See createWatch for rationale.
 	listOpts := metav1.ListOptions{
 		Watch: true,
-	}
-	if wm.trackingMethod == TrackingMethodLabel || wm.trackingMethod == TrackingMethodAnnotationAndLabel {
-		listOpts.LabelSelector = "app.kubernetes.io/instance"
 	}
 
 	// Start watcher using handle's context (so it gets cancelled with handle)
@@ -294,21 +291,13 @@ func (wm *SelectiveWatchManager) createWatch(gk schema.GroupKind, gvr schema.Gro
 		ctx:               ctx,
 	}
 
-	// Build list options with label selector for tracking
+	// Watch all resources of this type without label selectors.
+	// The graph cache's selectiveness comes from watching only specific resource
+	// *types* (not all 50+ types like the traditional cache), not from filtering
+	// within a type. Label selectors would miss resources tracked by annotation,
+	// custom labels, or "extra" resources created directly by users.
 	listOpts := metav1.ListOptions{
 		Watch: true,
-	}
-
-	// For label-based tracking, we can use a label selector
-	if wm.trackingMethod == TrackingMethodLabel || wm.trackingMethod == TrackingMethodAnnotationAndLabel {
-		// Watch resources with the app.kubernetes.io/instance label
-		listOpts.LabelSelector = "app.kubernetes.io/instance"
-	} else if wm.trackingMethod == TrackingMethodAnnotation {
-		// Warning for inefficient annotation tracking
-		log.WithFields(log.Fields{
-			"component": "graph-cache",
-			"kind":      gk.Kind,
-		}).Warn("Watching resource with annotation tracking (inefficient). Consider using label tracking.")
 	}
 
 	// Start watches based on scope
@@ -455,17 +444,11 @@ func (wm *SelectiveWatchManager) startWatcher(ctx context.Context, gvr schema.Gr
 }
 
 // handleEvent handles a single watch event.
+// All resources from watched types are processed, not just those with Argo CD tracking.
+// Child resources (ReplicaSets, Pods) typically lack tracking labels but are linked
+// to applications via OwnerReferences. The downstream addResourceToGraph handles
+// deriving app ownership from the parent chain.
 func (wm *SelectiveWatchManager) handleEvent(eventType watch.EventType, obj *unstructured.Unstructured) {
-	// Check if resource has Argo CD tracking
-	trackingInfo := ExtractTrackingInfo(obj, wm.trackingMethod)
-
-	// For POC, we only process resources with tracking
-	// In the future, we might also process descendants without tracking
-	if !trackingInfo.HasTracking {
-		return
-	}
-
-	// Call the event handler
 	if wm.onResourceEvent != nil {
 		wm.onResourceEvent(eventType, obj)
 	}
@@ -518,12 +501,9 @@ func (wm *SelectiveWatchManager) discoverResource(gk schema.GroupKind) (schema.G
 // ListManagedResources performs an initial list of all resources with Argo CD tracking.
 // This is used for initial discovery before watches are established.
 func (wm *SelectiveWatchManager) ListManagedResources(gvr schema.GroupVersionResource, isNamespaced bool) ([]*unstructured.Unstructured, error) {
+	// List all resources of this type without label selectors.
+	// See createWatch for rationale.
 	listOpts := metav1.ListOptions{}
-
-	// Add label selector for label-based tracking
-	if wm.trackingMethod == TrackingMethodLabel || wm.trackingMethod == TrackingMethodAnnotationAndLabel {
-		listOpts.LabelSelector = "app.kubernetes.io/instance"
-	}
 
 	var result []*unstructured.Unstructured
 
@@ -561,18 +541,147 @@ func (wm *SelectiveWatchManager) ListManagedResources(gvr schema.GroupVersionRes
 		}
 	}
 
-	// Filter by tracking method (for annotation-only tracking)
-	if wm.trackingMethod == TrackingMethodAnnotation {
-		var filtered []*unstructured.Unstructured
-		for _, obj := range result {
-			if HasArgoTracking(obj, wm.trackingMethod) {
-				filtered = append(filtered, obj)
+	return result, nil
+}
+
+// ListAllResources lists all resources of a type without label selectors.
+// Used for descendant resource types (ReplicaSets, Pods) that typically don't
+// have Argo CD tracking labels but are linked via OwnerReferences.
+func (wm *SelectiveWatchManager) ListAllResources(gvr schema.GroupVersionResource, isNamespaced bool) ([]*unstructured.Unstructured, error) {
+	listOpts := metav1.ListOptions{}
+	var result []*unstructured.Unstructured
+
+	if isNamespaced {
+		if len(wm.namespaces) == 0 {
+			list, err := wm.dynamicClient.Resource(gvr).List(wm.ctx, listOpts)
+			if err != nil {
+				return nil, err
+			}
+			for i := range list.Items {
+				result = append(result, &list.Items[i])
+			}
+		} else {
+			for _, ns := range wm.namespaces {
+				list, err := wm.dynamicClient.Resource(gvr).Namespace(ns).List(wm.ctx, listOpts)
+				if err != nil {
+					log.WithError(err).WithField("namespace", ns).Warn("Failed to list resources in namespace")
+					continue
+				}
+				for i := range list.Items {
+					result = append(result, &list.Items[i])
+				}
 			}
 		}
-		result = filtered
+	} else {
+		list, err := wm.dynamicClient.Resource(gvr).List(wm.ctx, listOpts)
+		if err != nil {
+			return nil, err
+		}
+		for i := range list.Items {
+			result = append(result, &list.Items[i])
+		}
 	}
 
 	return result, nil
+}
+
+// EnsureWatchForDescendant creates a watch without label selectors for descendant types.
+// Descendant resources (e.g., ReplicaSets, Pods) typically don't have tracking labels.
+func (wm *SelectiveWatchManager) EnsureWatchForDescendant(gk schema.GroupKind) (bool, error) {
+	wm.watchLock.Lock()
+	defer wm.watchLock.Unlock()
+
+	if _, exists := wm.watches[gk]; exists {
+		return false, nil
+	}
+
+	gvr, isNamespaced, err := wm.discoverResource(gk)
+	if err != nil {
+		return false, fmt.Errorf("failed to discover resource %s: %w", gk, err)
+	}
+
+	handle, err := wm.createWatchWithoutLabelSelector(gk, gvr, isNamespaced)
+	if err != nil {
+		return false, fmt.Errorf("failed to create descendant watch for %s: %w", gk, err)
+	}
+
+	wm.watches[gk] = handle
+
+	wm.metricsLock.Lock()
+	wm.metrics.ActiveWatches++
+	wm.metrics.WatchesByType[gk]++
+	wm.metricsLock.Unlock()
+
+	log.WithFields(log.Fields{
+		"component":  "graph-cache",
+		"group":      gk.Group,
+		"kind":       gk.Kind,
+		"descendant": true,
+	}).Info("Created descendant watch (no label selector)")
+
+	return true, nil
+}
+
+// createWatchWithoutLabelSelector creates a watch without label selectors.
+// Used for descendant types that lack tracking labels.
+func (wm *SelectiveWatchManager) createWatchWithoutLabelSelector(gk schema.GroupKind, gvr schema.GroupVersionResource, isNamespaced bool) (*WatchHandle, error) {
+	ctx, cancel := context.WithCancel(wm.ctx)
+
+	handle := &WatchHandle{
+		GroupKind:         gk,
+		Namespaces:        wm.namespaces,
+		Cancel:            cancel,
+		StartTime:         time.Now(),
+		IsNamespaced:      isNamespaced,
+		watchedNamespaces: make(map[string]bool),
+		gvr:               gvr,
+		ctx:               ctx,
+	}
+
+	// No label selector — watch all resources of this type
+	listOpts := metav1.ListOptions{
+		Watch: true,
+	}
+
+	if isNamespaced {
+		if len(wm.namespaces) == 0 {
+			go wm.startWatcher(ctx, gvr, "", listOpts, handle)
+		} else {
+			for _, ns := range wm.namespaces {
+				go wm.startWatcher(ctx, gvr, ns, listOpts, handle)
+				handle.watchedNamespaces[ns] = true
+			}
+		}
+	} else {
+		go wm.startWatcher(ctx, gvr, "", listOpts, handle)
+	}
+
+	return handle, nil
+}
+
+// StopAllWatches stops all active watches without shutting down the manager.
+// Used during Invalidate to reset watch state.
+func (wm *SelectiveWatchManager) StopAllWatches() {
+	wm.watchLock.Lock()
+	defer wm.watchLock.Unlock()
+
+	for gk, handle := range wm.watches {
+		handle.Cancel()
+		delete(wm.watches, gk)
+	}
+
+	wm.metricsLock.Lock()
+	wm.metrics.ActiveWatches = 0
+	wm.metrics.WatchesByType = make(map[schema.GroupKind]int)
+	wm.metricsLock.Unlock()
+}
+
+// IsTypeWatched returns whether a GroupKind is currently being watched.
+func (wm *SelectiveWatchManager) IsTypeWatched(gk schema.GroupKind) bool {
+	wm.watchLock.RLock()
+	defer wm.watchLock.RUnlock()
+	_, exists := wm.watches[gk]
+	return exists
 }
 
 // ToResourceKey converts an unstructured object to a ResourceKey.

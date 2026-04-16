@@ -3,7 +3,7 @@ package graphcache
 import (
 	"testing"
 
-	"github.com/argoproj/gitops-engine/pkg/utils/kube"
+	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 )
 
 // BenchmarkResourceGraph_LabelUpdate_NoChanges benchmarks updating a resource with unchanged labels

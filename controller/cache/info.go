@@ -23,7 +23,9 @@ import (
 	"github.com/argoproj/argo-cd/v3/util/settings"
 )
 
-func populateNodeInfo(un *unstructured.Unstructured, res *ResourceInfo, customLabels []string) {
+// PopulateNodeInfo populates resource info items like images, networking info,
+// pod info, and custom labels from the unstructured resource.
+func PopulateNodeInfo(un *unstructured.Unstructured, res *ResourceInfo, customLabels []string) {
 	gvk := un.GroupVersionKind()
 	revision := resource.GetRevision(un)
 	if revision > 0 {

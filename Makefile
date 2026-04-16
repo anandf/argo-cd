@@ -55,6 +55,7 @@ DOCKER_NETWORK_ARG :=
 endif
 
 ARGOCD_PROCFILE?=Procfile
+ARGOCD_ENABLE_GRAPH_CACHE?=true
 
 # pointing to python 3.12 to match https://github.com/argoproj/argo-cd/blob/master/.readthedocs.yaml
 MKDOCS_DOCKER_IMAGE?=python:3.12-alpine
@@ -546,6 +547,7 @@ start-e2e-local: mod-vendor-local dep-ui-local cli-local
 	ARGOCD_E2E_TEST=true \
 	ARGOCD_HYDRATOR_ENABLED=true \
 	ARGOCD_CLUSTER_CACHE_EVENTS_PROCESSING_INTERVAL=1ms \
+	ARGOCD_ENABLE_GRAPH_CACHE=$(ARGOCD_ENABLE_GRAPH_CACHE) \
 		goreman -f $(ARGOCD_PROCFILE) start ${ARGOCD_START}
 	ls -lrt /tmp/coverage
 
@@ -580,6 +582,7 @@ start-local: mod-vendor-local dep-ui-local cli-local
 	BIN_MODE=$(ARGOCD_BIN_MODE) \
 	ARGOCD_E2E_TEST=false \
 	ARGOCD_APPLICATION_NAMESPACES=$(ARGOCD_APPLICATION_NAMESPACES) \
+	ARGOCD_ENABLE_GRAPH_CACHE=$(ARGOCD_ENABLE_GRAPH_CACHE) \
 		goreman -f $(ARGOCD_PROCFILE) start ${ARGOCD_START}
 
 # Run goreman start with exclude option , provide exclude env variable with list of services

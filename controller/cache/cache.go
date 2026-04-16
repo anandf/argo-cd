@@ -554,7 +554,7 @@ func (c *liveStateCache) getCluster(cluster *appv1.Cluster) (clustercache.Cluste
 		clustercache.SetClusterResources(cluster.ClusterResources),
 		clustercache.SetPopulateResourceInfoHandler(func(un *unstructured.Unstructured, isRoot bool) (any, bool) {
 			res := &ResourceInfo{}
-			populateNodeInfo(un, res, resourceCustomLabels)
+			PopulateNodeInfo(un, res, resourceCustomLabels)
 			c.lock.RLock()
 			cacheSettings := c.cacheSettings
 			c.lock.RUnlock()

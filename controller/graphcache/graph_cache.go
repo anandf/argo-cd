@@ -14,8 +14,9 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 
-	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	statecache "github.com/argoproj/argo-cd/v3/controller/cache"
 	"github.com/argoproj/argo-cd/v3/controller/metrics"
+	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	repoclient "github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 )
@@ -31,10 +32,12 @@ type GraphCache struct {
 	cyphernetesExecutor *CyphernetesQueryExecutor
 
 	// Configuration
-	trackingMethod TrackingMethod
-	namespaces     []string
-	serverURL      string      // For metrics labeling
-	graphConfig    GraphConfig // Tunable parameters
+	trackingMethod      TrackingMethod
+	namespaces          []string
+	serverURL           string      // For metrics labeling
+	graphConfig         GraphConfig // Tunable parameters
+	appInstanceLabelKey string      // Custom tracking label key (default: app.kubernetes.io/instance)
+	configLock          sync.RWMutex // Protects mutable config fields like appInstanceLabelKey
 
 	// Discovery state
 	discoveredTypes map[schema.GroupKind]bool
@@ -43,6 +46,10 @@ type GraphCache struct {
 	// Context
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// Callbacks for adapter integration
+	onResourceUpdated           func(newRes, oldRes *ResourceNode, obj *unstructured.Unstructured, eventType watch.EventType)
+	populateResourceInfoHandler PopulateResourceInfoHandler
 
 	// Metrics
 	metricsLock       sync.RWMutex
@@ -75,10 +82,16 @@ type CacheMetrics struct {
 	AddEvents               int64
 	UpdateEvents            int64
 	DeleteEvents            int64
+	SkippedEvents           int64 // Events skipped by pre-filter (unmanaged resources)
 
 	// Performance
 	AverageEventProcessTime time.Duration
 }
+
+// PopulateResourceInfoHandler is called to populate enrichment info (health, images,
+// networking) for each resource. Matches the signature used by gitops-engine.
+// Returns the info object and whether the full manifest should be cached.
+type PopulateResourceInfoHandler func(un *unstructured.Unstructured, isRoot bool) (info interface{}, cacheManifest bool)
 
 // Config contains configuration for the graph cache.
 type Config struct {
@@ -89,6 +102,10 @@ type Config struct {
 	Namespaces       []string
 	ServerURL        string      // Server URL for metrics labeling (optional)
 	GraphConfig      GraphConfig // Tunable parameters (optional, uses defaults if not set)
+
+	// PopulateResourceInfoHandler is called for each resource to compute
+	// health status, images, networking info, etc. If nil, no enrichment is done.
+	PopulateResourceInfoHandler PopulateResourceInfoHandler
 }
 
 // NewGraphCache creates a new graph-based cache.
@@ -142,7 +159,8 @@ func NewGraphCache(ctx context.Context, config Config) (*GraphCache, error) {
 			ResourcesByApplication: make(map[string]int),
 			WatchesByType:          make(map[schema.GroupKind]bool),
 		},
-		prometheusMetrics: metrics.NewGraphCacheMetrics(""), // hostname can be empty for now
+		prometheusMetrics:           metrics.NewGraphCacheMetrics(""), // hostname can be empty for now
+		populateResourceInfoHandler: config.PopulateResourceInfoHandler,
 	}
 
 	// Create watch manager with event handler
@@ -177,10 +195,12 @@ func NewGraphCache(ctx context.Context, config Config) (*GraphCache, error) {
 
 // Start begins the graph cache operation by performing initial discovery.
 func (gc *GraphCache) Start() error {
-	log.WithField("component", "graph-cache").Info("Starting graph cache")
+	opLog := NewOperationLogger("start")
+	opLog.Info("Starting graph cache")
 
 	// Perform initial discovery
 	if err := gc.DiscoverManagedResources(); err != nil {
+		opLog.CompleteWithError(err, "Initial discovery failed")
 		return fmt.Errorf("initial discovery failed: %w", err)
 	}
 
@@ -190,11 +210,10 @@ func (gc *GraphCache) Start() error {
 	// Start periodic metrics export (every 30 seconds)
 	go gc.periodicMetricsExport()
 
-	log.WithFields(log.Fields{
-		"component":         "graph-cache",
+	opLog.WithFields(log.Fields{
 		"managed_resources": gc.graph.Size(),
 		"active_watches":    len(gc.watchManager.GetActiveWatches()),
-	}).Info("Graph cache started successfully")
+	}).Complete("Graph cache started successfully")
 
 	return nil
 }
@@ -209,8 +228,31 @@ func (gc *GraphCache) Shutdown() {
 	log.WithField("component", "graph-cache").Info("Graph cache shutdown complete")
 }
 
+// SetTrackingMethod updates the tracking method and re-evaluates all existing resources.
+// This is called when the tracking method setting changes at runtime (e.g., switching
+// from annotation to label tracking). All resources in the graph are re-processed
+// to update their ManagedBy field according to the new tracking method.
+func (gc *GraphCache) SetTrackingMethod(method TrackingMethod) {
+	gc.trackingMethod = method
+
+	// Re-process all existing resources with the new tracking method
+	nodes := gc.graph.GetAllNodes()
+	for _, node := range nodes {
+		if node.Resource != nil {
+			gc.addResourceToGraph(node.Resource)
+		}
+	}
+
+	log.WithFields(log.Fields{
+		"component":      "graph-cache",
+		"trackingMethod": method,
+		"reprocessed":    len(nodes),
+	}).Info("Tracking method updated, re-processed all resources")
+}
+
 // DiscoverManagedResources discovers all resources managed by Argo CD and sets up watches.
 func (gc *GraphCache) DiscoverManagedResources() error {
+	opLog := NewOperationLogger("discover_resources")
 	startTime := time.Now()
 	defer func() {
 		gc.metricsLock.Lock()
@@ -220,7 +262,7 @@ func (gc *GraphCache) DiscoverManagedResources() error {
 		gc.metricsLock.Unlock()
 	}()
 
-	log.WithField("component", "graph-cache").Info("Starting resource discovery")
+	opLog.Info("Starting resource discovery")
 
 	// Well-known resource types that typically have Argo CD managed resources
 	commonTypes := []schema.GroupKind{
@@ -267,12 +309,14 @@ func (gc *GraphCache) DiscoverManagedResources() error {
 	gc.metrics.ResourcesDiscovered = totalDiscovered
 	gc.metricsLock.Unlock()
 
-	log.WithFields(log.Fields{
-		"component":         "graph-cache",
-		"resources":         totalDiscovered,
-		"types":             len(gc.discoveredTypes),
-		"duration_ms":       time.Since(startTime).Milliseconds(),
-	}).Info("Resource discovery complete")
+	gc.discoveryLock.RLock()
+	discoveredCount := len(gc.discoveredTypes)
+	gc.discoveryLock.RUnlock()
+
+	opLog.WithFields(log.Fields{
+		"resources": totalDiscovered,
+		"types":     discoveredCount,
+	}).Complete("Resource discovery complete")
 
 	return nil
 }
@@ -329,12 +373,21 @@ func (gc *GraphCache) discoverResourceType(gk schema.GroupKind) (int, error) {
 }
 
 // addResourceToGraph adds a resource to the graph and updates indices.
+// Resources without Argo CD tracking labels are still accepted — their app ownership
+// is derived from the parent chain via OwnerReferences. This allows child resources
+// (ReplicaSets, Pods) to be properly associated with their parent application.
 func (gc *GraphCache) addResourceToGraph(obj *unstructured.Unstructured) {
-	// Extract tracking information
-	trackingInfo := ExtractTrackingInfo(obj, gc.trackingMethod)
-	if !trackingInfo.HasTracking {
+	// Pre-filter: skip resources that are clearly not managed by Argo CD.
+	// This avoids expensive operations (DeepCopy, health checks, graph updates)
+	// on unmanaged resources that flow through watches without label selectors.
+	key := ToResourceKey(obj)
+	_, existsInGraph := gc.graph.Get(key)
+	if !existsInGraph && !gc.hasTrackingMarkers(obj) {
 		return
 	}
+
+	// Extract tracking information
+	trackingInfo := ExtractTrackingInfo(obj, gc.trackingMethod)
 
 	// Extract parent references
 	parents := gc.descendantTracker.ExtractParentReferences(obj)
@@ -343,10 +396,13 @@ func (gc *GraphCache) addResourceToGraph(obj *unstructured.Unstructured) {
 	objCopy := obj.DeepCopy()
 
 	// Create resource node with full object
+	gvk := obj.GroupVersionKind()
 	node := &ResourceNode{
 		Key:             ToResourceKey(obj),
+		Version:         gvk.Version,
+		UID:             string(obj.GetUID()),
 		ResourceVersion: obj.GetResourceVersion(),
-		ManagedBy:       trackingInfo.AppName,
+		ManagedBy:       trackingInfo.AppName, // May be empty for untracked resources
 		TrackingID:      trackingInfo.TrackingID,
 		Parents:         parents,
 		Children:        []kube.ResourceKey{}, // Will be populated by graph
@@ -358,19 +414,141 @@ func (gc *GraphCache) addResourceToGraph(obj *unstructured.Unstructured) {
 		Resource: objCopy, // Store full object for cache hits
 	}
 
+	// Call PopulateResourceInfoHandler if configured.
+	// The handler uses resourceTracking.GetAppName() which correctly handles
+	// custom tracking labels (application.instanceLabelKey), annotation tracking,
+	// and installation ID — unlike the internal ExtractTrackingInfo which only
+	// knows about the hardcoded label. Use the handler's AppName as source of truth.
+	if gc.populateResourceInfoHandler != nil {
+		isRoot := len(parents) == 0
+		info, cacheManifest := gc.populateResourceInfoHandler(obj, isRoot)
+		node.CachedInfo = info
+		if !cacheManifest {
+			node.Resource = nil // Don't store full manifest if handler says no
+		}
+		// Use AppName from handler as authoritative source of tracking info.
+		// The handler calls resourceTracking.GetAppName() which correctly handles
+		// custom tracking labels (application.instanceLabelKey) and annotation tracking,
+		// unlike the internal ExtractTrackingInfo which only knows hardcoded labels.
+		if ri, ok := info.(*statecache.ResourceInfo); ok && ri != nil && ri.AppName != "" {
+			node.ManagedBy = ri.AppName
+			trackingInfo.HasTracking = true
+			trackingInfo.AppName = ri.AppName
+		}
+	}
+
 	// Add to graph
 	gc.graph.AddOrUpdate(node)
 
+	// If resource has no tracking, try to derive app name from parent chain
+	if !trackingInfo.HasTracking {
+		appName := gc.deriveAppNameFromParents(node.Key)
+		if appName != "" {
+			gc.updateNodeAppName(node.Key, appName)
+		}
+	} else {
+		// Resource has tracking — propagate app name to children that lack tracking
+		gc.propagateAppNameToChildren(node.Key, trackingInfo.AppName)
+	}
+
 	log.WithFields(log.Fields{
-		"component":  "graph-cache",
-		"app":        trackingInfo.AppName,
-		"kind":       node.Key.Kind,
-		"namespace":  node.Key.Namespace,
-		"name":       node.Key.Name,
+		"component": "graph-cache",
+		"app":       node.ManagedBy,
+		"kind":      node.Key.Kind,
+		"namespace": node.Key.Namespace,
+		"name":      node.Key.Name,
+		"tracked":   trackingInfo.HasTracking,
 	}).Debug("Added resource to graph")
 }
 
+// deriveAppNameFromParents walks the parent chain via OwnerReferences to find
+// the nearest ancestor with a ManagedBy value. Uses a depth limit to prevent cycles.
+func (gc *GraphCache) deriveAppNameFromParents(key kube.ResourceKey) string {
+	return gc.deriveAppNameRecursive(key, 0, make(map[kube.ResourceKey]bool))
+}
+
+func (gc *GraphCache) deriveAppNameRecursive(key kube.ResourceKey, depth int, visited map[kube.ResourceKey]bool) string {
+	if depth > 10 || visited[key] {
+		return ""
+	}
+	visited[key] = true
+
+	node, exists := gc.graph.Get(key)
+	if !exists {
+		return ""
+	}
+
+	if node.ManagedBy != "" {
+		return node.ManagedBy
+	}
+
+	for _, parent := range node.Parents {
+		appName := gc.deriveAppNameRecursive(parent.ResourceKey, depth+1, visited)
+		if appName != "" {
+			return appName
+		}
+	}
+
+	return ""
+}
+
+// updateNodeAppName updates the ManagedBy field for a node and fixes the app index.
+func (gc *GraphCache) updateNodeAppName(key kube.ResourceKey, appName string) {
+	shard := gc.graph.getShard(key)
+	shard.lock.Lock()
+	defer shard.lock.Unlock()
+
+	node, exists := shard.nodes[key]
+	if !exists {
+		return
+	}
+
+	oldApp := node.ManagedBy
+	if oldApp == appName {
+		return
+	}
+
+	// Remove from old app index
+	if oldApp != "" {
+		if shard.appIndex[oldApp] != nil {
+			delete(shard.appIndex[oldApp], key)
+			if len(shard.appIndex[oldApp]) == 0 {
+				delete(shard.appIndex, oldApp)
+			}
+		}
+	}
+
+	// Update and add to new app index
+	node.ManagedBy = appName
+	if appName != "" {
+		if shard.appIndex[appName] == nil {
+			shard.appIndex[appName] = make(map[kube.ResourceKey]bool)
+		}
+		shard.appIndex[appName][key] = true
+	}
+}
+
+// propagateAppNameToChildren propagates app ownership to descendant resources
+// that currently have no ManagedBy value. Handles the race condition where
+// children arrive in the graph before their parents.
+func (gc *GraphCache) propagateAppNameToChildren(key kube.ResourceKey, appName string) {
+	if appName == "" {
+		return
+	}
+
+	children := gc.graph.GetChildren(key)
+	for _, child := range children {
+		if child.ManagedBy == "" {
+			gc.updateNodeAppName(child.Key, appName)
+			// Recurse to propagate further down
+			gc.propagateAppNameToChildren(child.Key, appName)
+		}
+	}
+}
+
 // ensureDescendantWatches ensures watches exist for descendant resource types.
+// Descendant watches do NOT use label selectors since child resources typically
+// lack Argo CD tracking labels.
 func (gc *GraphCache) ensureDescendantWatches(parentGK schema.GroupKind) {
 	descendants := gc.descendantTracker.GetExpectedDescendants(parentGK)
 
@@ -384,8 +562,9 @@ func (gc *GraphCache) ensureDescendantWatches(parentGK schema.GroupKind) {
 			continue
 		}
 
-		// Try to create watch for descendant type
-		created, err := gc.watchManager.EnsureWatch(childGK, "")
+		// Use descendant watch (no label selector) since child resources
+		// typically don't have tracking labels
+		created, err := gc.watchManager.EnsureWatchForDescendant(childGK)
 		if err != nil {
 			log.WithError(err).WithFields(log.Fields{
 				"component": "graph-cache",
@@ -419,6 +598,74 @@ func (gc *GraphCache) ensureDescendantWatches(parentGK schema.GroupKind) {
 	}
 }
 
+// ensureWatchAndDescendants creates a watch for a resource type and its known descendants.
+// Called when a cache miss triggers API fallback to auto-discover new resource types.
+func (gc *GraphCache) ensureWatchAndDescendants(gk schema.GroupKind) {
+	created, err := gc.watchManager.EnsureWatch(gk, "")
+	if err != nil {
+		log.WithError(err).WithFields(log.Fields{
+			"component": "graph-cache",
+			"group":     gk.Group,
+			"kind":      gk.Kind,
+		}).Warn("Failed to create watch for discovered type")
+		return
+	}
+	if created {
+		gc.discoveryLock.Lock()
+		gc.discoveredTypes[gk] = true
+		gc.discoveryLock.Unlock()
+
+		gc.metricsLock.Lock()
+		gc.metrics.WatchesByType[gk] = true
+		gc.metricsLock.Unlock()
+
+		gc.ensureDescendantWatches(gk)
+	}
+}
+
+// SetAppInstanceLabelKey updates the custom tracking label key used for pre-filtering.
+func (gc *GraphCache) SetAppInstanceLabelKey(key string) {
+	gc.configLock.Lock()
+	gc.appInstanceLabelKey = key
+	gc.configLock.Unlock()
+}
+
+// hasTrackingMarkers performs a fast check to determine if a resource might be
+// managed by Argo CD. This is a pre-filter to avoid expensive operations
+// (DeepCopy, health computation, graph storage) on unmanaged resources.
+// Returns true if the resource has any tracking markers or OwnerReferences
+// (potential child of a managed resource).
+func (gc *GraphCache) hasTrackingMarkers(obj *unstructured.Unstructured) bool {
+	// Check standard tracking label
+	labels := obj.GetLabels()
+	if _, ok := labels[LabelKeyAppInstance]; ok {
+		return true
+	}
+
+	// Check custom tracking label if configured
+	gc.configLock.RLock()
+	customKey := gc.appInstanceLabelKey
+	gc.configLock.RUnlock()
+	if customKey != "" && customKey != LabelKeyAppInstance {
+		if _, ok := labels[customKey]; ok {
+			return true
+		}
+	}
+
+	// Check tracking annotation
+	annotations := obj.GetAnnotations()
+	if _, ok := annotations[AnnotationKeyAppInstance]; ok {
+		return true
+	}
+
+	// Has OwnerReferences — could be a child of a managed resource
+	if len(obj.GetOwnerReferences()) > 0 {
+		return true
+	}
+
+	return false
+}
+
 // handleResourceEvent handles watch events for resources.
 func (gc *GraphCache) handleResourceEvent(eventType watch.EventType, obj *unstructured.Unstructured) {
 	startTime := time.Now()
@@ -436,7 +683,21 @@ func (gc *GraphCache) handleResourceEvent(eventType watch.EventType, obj *unstru
 
 	switch eventType {
 	case watch.Added, watch.Modified:
+		// Get old node before update for change notification
+		key := ToResourceKey(obj)
+		oldNode, _ := gc.graph.Get(key)
+
 		gc.addResourceToGraph(obj)
+
+		// Get the new node after update
+		newNode, exists := gc.graph.Get(key)
+		if !exists && oldNode == nil {
+			// Resource was skipped by pre-filter (unmanaged)
+			gc.metricsLock.Lock()
+			gc.metrics.SkippedEvents++
+			gc.metricsLock.Unlock()
+			return
+		}
 
 		gc.metricsLock.Lock()
 		if eventType == watch.Added {
@@ -445,6 +706,11 @@ func (gc *GraphCache) handleResourceEvent(eventType watch.EventType, obj *unstru
 			gc.metrics.UpdateEvents++
 		}
 		gc.metricsLock.Unlock()
+
+		// Notify adapter of resource change
+		if gc.onResourceUpdated != nil {
+			gc.onResourceUpdated(newNode, oldNode, obj, eventType)
+		}
 
 		// Check if this is a new resource type
 		gk := ToGroupKind(obj)
@@ -468,11 +734,17 @@ func (gc *GraphCache) handleResourceEvent(eventType watch.EventType, obj *unstru
 
 	case watch.Deleted:
 		key := ToResourceKey(obj)
+		oldNode, _ := gc.graph.Get(key)
 		gc.graph.Delete(key)
 
 		gc.metricsLock.Lock()
 		gc.metrics.DeleteEvents++
 		gc.metricsLock.Unlock()
+
+		// Notify adapter of deletion
+		if gc.onResourceUpdated != nil {
+			gc.onResourceUpdated(nil, oldNode, obj, eventType)
+		}
 
 		log.WithFields(log.Fields{
 			"component": "graph-cache",
@@ -495,6 +767,10 @@ func (gc *GraphCache) periodicDiscovery() {
 		case <-ticker.C:
 			if err := gc.DiscoverManagedResources(); err != nil {
 				log.WithError(err).WithField("component", "graph-cache").Warn("Periodic discovery failed")
+			}
+			// Clean up expired manifest cache entries
+			if gc.manifestDiscovery != nil {
+				gc.manifestDiscovery.ClearExpiredCache()
 			}
 		}
 	}
@@ -567,14 +843,12 @@ func (gc *GraphCache) GetDynamicClient() dynamic.Interface {
 
 // GetMetrics returns current cache metrics.
 func (gc *GraphCache) GetMetrics() CacheMetrics {
+	// Gather external metrics outside the lock to avoid holding lock over I/O
+	graphMetrics := gc.graph.GetMetrics()
+	watchMetrics := gc.watchManager.GetMetrics()
+
 	gc.metricsLock.Lock()
 	defer gc.metricsLock.Unlock()
-
-	// Get graph metrics
-	graphMetrics := gc.graph.GetMetrics()
-
-	// Get watch metrics
-	watchMetrics := gc.watchManager.GetMetrics()
 
 	// Combine metrics
 	gc.metrics.TotalManagedResources = graphMetrics.TotalResources
@@ -749,7 +1023,19 @@ func (gc *GraphCache) PrepareForApplication(ctx context.Context, app *appv1.Appl
 		return nil
 	}
 
-	return gc.manifestDiscovery.DiscoverFromApplication(ctx, app)
+	opLog := NewOperationLoggerFromContext(ctx, "prepare_for_app")
+	opLog.WithFields(log.Fields{
+		"app_name":      app.Name,
+		"app_namespace": app.Namespace,
+	}).Info("Preparing watches for application")
+
+	err := gc.manifestDiscovery.DiscoverFromApplication(ctx, app)
+	if err != nil {
+		opLog.CompleteWithError(err, "Failed to prepare watches for application")
+		return err
+	}
+	opLog.Complete("Watches prepared for application")
+	return nil
 }
 
 // Snapshot creates a serializable snapshot of the current graph state
@@ -861,6 +1147,11 @@ func (gc *GraphCache) EnsureWatch(gvk schema.GroupVersionKind, namespace string)
 	}
 
 	return nil
+}
+
+// SetResourceUpdateCallback registers a callback invoked on every resource add/update/delete.
+func (gc *GraphCache) SetResourceUpdateCallback(cb func(newRes, oldRes *ResourceNode, obj *unstructured.Unstructured, eventType watch.EventType)) {
+	gc.onResourceUpdated = cb
 }
 
 // GetTypeRelationships returns the type relationship cache for inspection

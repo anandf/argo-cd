@@ -3,8 +3,11 @@ package graphcache
 import (
 	"fmt"
 
+	"github.com/argoproj/argo-cd/gitops-engine/pkg/health"
+	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -18,6 +21,7 @@ import (
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/db"
 	"github.com/argoproj/argo-cd/v3/util/env"
+	"github.com/argoproj/argo-cd/v3/util/lua"
 	"github.com/argoproj/argo-cd/v3/util/settings"
 )
 
@@ -54,7 +58,13 @@ type CacheFactoryConfig struct {
 
 // NewLiveStateCache creates a LiveStateCache based on configuration
 // It will create either a traditional gitops-engine cache or a graph-based cache
-// depending on the ARGOCD_ENABLE_GRAPH_CACHE environment variable
+// depending on the ARGOCD_ENABLE_GRAPH_CACHE environment variable.
+//
+// Rollout is controlled by environment variables:
+//   - ARGOCD_ENABLE_GRAPH_CACHE: master switch (must be "true" to enable)
+//   - ARGOCD_GRAPH_CACHE_ROLLOUT_STRATEGY: "all" (default), "percentage", or "allowlist"
+//   - ARGOCD_GRAPH_CACHE_ROLLOUT_PERCENTAGE: 0-100, used with "percentage" strategy
+//   - ARGOCD_GRAPH_CACHE_CLUSTER_ALLOWLIST: comma-separated server URLs for "allowlist" strategy
 func NewLiveStateCache(config CacheFactoryConfig) (statecache.LiveStateCache, error) {
 	// Check if graph cache is enabled
 	enableGraphCache := env.ParseBoolFromEnv(EnvGraphCacheEnabled, false)
@@ -74,6 +84,9 @@ func NewLiveStateCache(config CacheFactoryConfig) (statecache.LiveStateCache, er
 
 	log.Info("Graph cache enabled - initializing graph-based cache")
 
+	// Load rollout configuration for gradual rollout support
+	rolloutConfig := NewRolloutConfigFromEnv()
+
 	// Get tracking method from settings or env var
 	trackingMethod, err := getTrackingMethod(config.SettingsMgr)
 	if err != nil {
@@ -86,13 +99,18 @@ func NewLiveStateCache(config CacheFactoryConfig) (statecache.LiveStateCache, er
 		return nil, fmt.Errorf("failed to create repo server client: %w", err)
 	}
 
+	// Create PopulateResourceInfoHandler matching traditional cache behavior.
+	// This computes health status, app name, and determines whether to cache the manifest.
+	populateResourceInfoHandler := createPopulateResourceInfoHandler(config.SettingsMgr, config.ResourceTracking)
+
 	// Create graph cache config
 	graphCacheConfig := Config{
-		DynamicClient:    config.DynamicClient,
-		DiscoveryClient:  config.DiscoveryClient,
-		RepoServerClient: repoClient,
-		TrackingMethod:   trackingMethod,
-		Namespaces:       config.ApplicationNamespaces,
+		DynamicClient:               config.DynamicClient,
+		DiscoveryClient:             config.DiscoveryClient,
+		RepoServerClient:            repoClient,
+		TrackingMethod:              trackingMethod,
+		Namespaces:                  config.ApplicationNamespaces,
+		PopulateResourceInfoHandler: populateResourceInfoHandler,
 	}
 
 	var store GraphStore
@@ -110,13 +128,20 @@ func NewLiveStateCache(config CacheFactoryConfig) (statecache.LiveStateCache, er
 
 	// Create and return adapter
 	// Graph caches for clusters will be created lazily
-	adapter := NewGraphLiveStateCache(graphCacheConfig, store)
+	argocdNamespace := ""
+	if config.SettingsMgr != nil {
+		argocdNamespace = config.SettingsMgr.GetNamespace()
+	}
+	adapter := NewGraphLiveStateCache(graphCacheConfig, store, config.OnObjectUpdated, argocdNamespace, config.SettingsMgr)
+	adapter.rolloutConfig = rolloutConfig
 
 	log.Info("Graph cache initialized successfully")
 	log.WithFields(log.Fields{
-		"trackingMethod": trackingMethod,
-		"namespaces":     config.ApplicationNamespaces,
-		"persistence":    store != nil,
+		"trackingMethod":  trackingMethod,
+		"namespaces":      config.ApplicationNamespaces,
+		"persistence":     store != nil,
+		"rolloutStrategy": rolloutConfig.Strategy,
+		"rolloutPct":      rolloutConfig.Percentage,
 	}).Info("Graph cache configuration")
 
 	return adapter, nil
@@ -163,5 +188,63 @@ func parseTrackingMethod(method string) TrackingMethod {
 	default:
 		log.Warnf("Unknown tracking method '%s', using default annotation+label", method)
 		return TrackingMethodAnnotationAndLabel
+	}
+}
+
+// createPopulateResourceInfoHandler creates a handler that computes health status,
+// app name, and other enrichment info for each resource. This mirrors the handler
+// used by the traditional gitops-engine cache in controller/cache/cache.go.
+func createPopulateResourceInfoHandler(settingsMgr *settings.SettingsManager, resourceTracking argo.ResourceTracking) PopulateResourceInfoHandler {
+	return func(un *unstructured.Unstructured, isRoot bool) (interface{}, bool) {
+		res := &statecache.ResourceInfo{}
+
+		// Populate node info (images, networking, pod info, custom labels)
+		var customLabels []string
+		if settingsMgr != nil {
+			var err error
+			customLabels, err = settingsMgr.GetResourceCustomLabels()
+			if err != nil {
+				log.Warnf("Failed to get custom labels: %v", err)
+			}
+		}
+		statecache.PopulateNodeInfo(un, res, customLabels)
+
+		// Compute health status using resource overrides (Lua health checks)
+		var healthOverride health.HealthOverride
+		if settingsMgr != nil {
+			resourceOverrides, err := settingsMgr.GetResourceOverrides()
+			if err != nil {
+				log.Warnf("Failed to get resource overrides for health check: %v", err)
+			} else {
+				healthOverride = lua.ResourceHealthOverrides(resourceOverrides)
+			}
+		}
+		res.Health, _ = health.GetResourceHealth(un, healthOverride)
+
+		// Determine app name from tracking info
+		if resourceTracking != nil && settingsMgr != nil {
+			appInstanceLabelKey, err := settingsMgr.GetAppInstanceLabelKey()
+			if err != nil {
+				log.Warnf("Failed to get app instance label key: %v", err)
+			}
+			trackingMethod, err := settingsMgr.GetTrackingMethod()
+			if err != nil {
+				log.Warnf("Failed to get tracking method: %v", err)
+			}
+			installationID, err := settingsMgr.GetInstallationID()
+			if err != nil {
+				log.Warnf("Failed to get installation ID: %v", err)
+			}
+
+			appName := resourceTracking.GetAppName(un, appInstanceLabelKey, v1alpha1.TrackingMethod(trackingMethod), installationID)
+			if isRoot && appName != "" {
+				res.AppName = appName
+			}
+		}
+
+		gvk := un.GroupVersionKind()
+
+		// Cache manifest for managed resources and CRDs (CRDs aren't labeled but needed for diff)
+		return res, res.AppName != "" || gvk.Kind == kube.CustomResourceDefinitionKind
 	}
 }

@@ -4,43 +4,60 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/argoproj/argo-cd/gitops-engine/pkg/cache"
 	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 	log "github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/managedfields"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/kube-openapi/pkg/util/proto"
 	"k8s.io/kubectl/pkg/util/openapi"
 
 	statecache "github.com/argoproj/argo-cd/v3/controller/cache"
 	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/v3/util/settings"
 )
 
-// GraphLiveStateCache adapts GraphCache to implement the LiveStateCache interface
+// GraphLiveStateCache adapts GraphCache to implement the LiveStateCache interface.
 // This allows the graph cache to be used as a drop-in replacement for the
-// traditional gitops-engine cluster cache
+// traditional gitops-engine cluster cache.
 type GraphLiveStateCache struct {
-	config        Config
-	clusterCaches map[string]*clusterCacheAdapter
-	lock          sync.RWMutex
-	ctx           context.Context
-	store         GraphStore
+	config          Config
+	clusterCaches   map[string]*clusterCacheAdapter
+	lock            sync.RWMutex
+	ctx             context.Context
+	store           GraphStore
+	onObjectUpdated statecache.ObjectUpdatedHandler
+	// argocdNamespace is the namespace where ArgoCD is installed.
+	// Used to compute app instance names consistently with the traditional cache.
+	argocdNamespace string
+	// settingsMgr watches for configuration changes (tracking method, health overrides, etc.)
+	settingsMgr *settings.SettingsManager
+	// rolloutConfig controls which clusters use graph cache vs traditional cache.
+	// If nil, all clusters use graph cache (equivalent to "all" strategy).
+	rolloutConfig *RolloutConfig
 }
 
 // NewGraphLiveStateCache creates a new adapter that wraps GraphCache
-func NewGraphLiveStateCache(config Config, store GraphStore) *GraphLiveStateCache {
+func NewGraphLiveStateCache(config Config, store GraphStore, onObjectUpdated statecache.ObjectUpdatedHandler, argocdNamespace string, settingsMgr *settings.SettingsManager) *GraphLiveStateCache {
 	return &GraphLiveStateCache{
-		config:        config,
-		clusterCaches: make(map[string]*clusterCacheAdapter),
-		ctx:           context.Background(),
-		store:         store,
+		config:          config,
+		clusterCaches:   make(map[string]*clusterCacheAdapter),
+		ctx:             context.Background(),
+		store:           store,
+		onObjectUpdated: onObjectUpdated,
+		argocdNamespace: argocdNamespace,
+		settingsMgr:     settingsMgr,
 	}
 }
 
@@ -66,8 +83,16 @@ func (a *GraphLiveStateCache) IsNamespaced(cluster *appv1.Cluster, gk schema.Gro
 	return clusterCache.IsNamespaced(gk)
 }
 
-// GetClusterCache returns the cluster cache for a given server
+// GetClusterCache returns the cluster cache for a given server.
+// If gradual rollout is configured, checks whether this cluster should use
+// the graph cache based on the rollout strategy.
 func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (cache.ClusterCache, error) {
+	// Check rollout config — if this cluster is not selected, return an error
+	// so the caller falls back to the traditional cache.
+	if a.rolloutConfig != nil && !a.rolloutConfig.ShouldUseGraphCache(cluster.Server) {
+		return nil, fmt.Errorf("cluster %s is not selected for graph cache (rollout strategy: %s)", cluster.Server, a.rolloutConfig.Strategy)
+	}
+
 	a.lock.RLock()
 	clusterCache, ok := a.clusterCaches[cluster.Server]
 	a.lock.RUnlock()
@@ -100,11 +125,15 @@ func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (cache.Clu
 		return nil, fmt.Errorf("failed to create discovery client for cluster %s: %w", cluster.Server, err)
 	}
 
-	// Use shared config as base, override clients
+	// Use shared config as base, override per-cluster fields
 	gcConfig := a.config
 	gcConfig.DynamicClient = dynamicClient
 	gcConfig.DiscoveryClient = discoveryClient
-	gcConfig.ServerURL = cluster.Server // Set server URL for metrics
+	gcConfig.ServerURL = cluster.Server
+	// Use cluster's namespace restrictions (where resources are deployed),
+	// NOT ApplicationNamespaces (where Application CRDs live).
+	// Empty = watch all namespaces, which is the default for the in-cluster config.
+	gcConfig.Namespaces = cluster.Namespaces
 
 	// Use the adapter's context for graph cache lifecycle
 	gc, err := NewGraphCache(a.ctx, gcConfig)
@@ -112,14 +141,21 @@ func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (cache.Clu
 		return nil, fmt.Errorf("failed to create graph cache for cluster %s: %w", cluster.Server, err)
 	}
 
+	// Set initial custom label key for pre-filtering
+	if a.settingsMgr != nil {
+		if labelKey, err := a.settingsMgr.GetAppInstanceLabelKey(); err == nil && labelKey != "" {
+			gc.SetAppInstanceLabelKey(labelKey)
+		}
+	}
+
 	// Restore from snapshot if available
 	if a.store != nil {
-		snapshot, err := a.store.LoadSnapshot(cluster.Server)
-		if err != nil {
-			log.Warnf("Failed to load snapshot for cluster %s: %v", cluster.Server, err)
+		snapshot, loadErr := a.store.LoadSnapshot(cluster.Server)
+		if loadErr != nil {
+			log.Warnf("Failed to load snapshot for cluster %s: %v", cluster.Server, loadErr)
 		} else if snapshot != nil {
-			if err := gc.Restore(snapshot); err != nil {
-				log.Warnf("Failed to restore snapshot for cluster %s: %v", cluster.Server, err)
+			if restoreErr := gc.Restore(snapshot); restoreErr != nil {
+				log.Warnf("Failed to restore snapshot for cluster %s: %v", cluster.Server, restoreErr)
 			}
 		}
 	}
@@ -134,11 +170,9 @@ func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (cache.Clu
 		go a.runPersistenceLoop(cluster.Server, gc, gcConfig.GraphConfig.PersistenceInterval)
 	}
 
-	clusterCache = &clusterCacheAdapter{
-		graphCache: gc,
-		server:     cluster.Server,
-	}
-
+	clusterCache = newClusterCacheAdapter(gc, cluster.Server, a.onObjectUpdated, a.argocdNamespace)
+	// Signal that initial sync is complete since Start() succeeded
+	clusterCache.markSynced()
 	a.clusterCaches[cluster.Server] = clusterCache
 	return clusterCache, nil
 }
@@ -186,10 +220,9 @@ func (a *GraphLiveStateCache) IterateHierarchyV2(cluster *appv1.Cluster, keys []
 	}
 
 	if adapter, ok := clusterCache.(*clusterCacheAdapter); ok {
+		visited := make(map[kube.ResourceKey]bool)
 		for _, key := range keys {
-			if err := adapter.IterateHierarchy(key, action); err != nil {
-				return err
-			}
+			adapter.iterateHierarchyRecursiveSkipMissing(key, action, visited)
 		}
 		return nil
 	}
@@ -237,14 +270,92 @@ func (a *GraphLiveStateCache) GetNamespaceTopLevelResources(cluster *appv1.Clust
 
 // UpdateShard updates the shard of the cache
 func (a *GraphLiveStateCache) UpdateShard(shard int) bool {
-	// GraphCache currently handles all resources or sharding is managed externally/not applicable
 	return true
 }
 
 // Run starts the cache
 func (a *GraphLiveStateCache) Run(ctx context.Context) error {
+	a.lock.Lock()
 	a.ctx = ctx
+	a.lock.Unlock()
+
+	if a.settingsMgr != nil {
+		go a.watchSettings(ctx)
+	}
+
+	<-ctx.Done()
 	return nil
+}
+
+// watchSettings watches for settings changes and updates the tracking method
+// on all cluster caches when it changes. This mirrors the traditional cache's
+// watchSettings behavior in controller/cache/cache.go.
+func (a *GraphLiveStateCache) watchSettings(ctx context.Context) {
+	updateCh := make(chan *settings.ArgoCDSettings, 1)
+	a.settingsMgr.Subscribe(updateCh)
+
+	defer func() {
+		a.settingsMgr.Unsubscribe(updateCh)
+		close(updateCh)
+	}()
+
+	for {
+		select {
+		case <-updateCh:
+			newMethod, err := a.settingsMgr.GetTrackingMethod()
+			if err != nil {
+				log.Warnf("Failed to get tracking method from settings: %v", err)
+				continue
+			}
+
+			// Also update custom app instance label key for pre-filtering
+			newLabelKey, err := a.settingsMgr.GetAppInstanceLabelKey()
+			if err != nil {
+				log.Warnf("Failed to get app instance label key from settings: %v", err)
+			}
+
+			graphMethod := convertTrackingMethod(newMethod)
+
+			a.lock.Lock()
+			// Update the config so new cluster caches get the right tracking method
+			a.config.TrackingMethod = graphMethod
+			for server, clusterCache := range a.clusterCaches {
+				if clusterCache.graphCache != nil {
+					if clusterCache.graphCache.trackingMethod != graphMethod {
+						log.WithFields(log.Fields{
+							"server":    server,
+							"oldMethod": clusterCache.graphCache.trackingMethod,
+							"newMethod": graphMethod,
+						}).Info("Tracking method changed, re-processing resources")
+						clusterCache.graphCache.SetTrackingMethod(graphMethod)
+					}
+					if newLabelKey != "" {
+						clusterCache.graphCache.SetAppInstanceLabelKey(newLabelKey)
+					}
+				}
+			}
+			a.lock.Unlock()
+
+		case <-ctx.Done():
+			log.Info("Shutting down graph cache settings watch")
+			return
+		}
+	}
+}
+
+// convertTrackingMethod converts from the settings tracking method string to
+// the graph cache's TrackingMethod type.
+func convertTrackingMethod(method string) TrackingMethod {
+	switch appv1.TrackingMethod(method) {
+	case appv1.TrackingMethodAnnotation:
+		return TrackingMethodAnnotation
+	case appv1.TrackingMethodLabel:
+		return TrackingMethodLabel
+	case appv1.TrackingMethodAnnotationAndLabel:
+		return TrackingMethodAnnotationAndLabel
+	default:
+		return TrackingMethodAnnotationAndLabel
+	}
 }
 
 // GetClustersInfo returns information about all clusters
@@ -288,7 +399,7 @@ func nodeToResourceNode(node *ResourceNode) appv1.ResourceNode {
 
 	creationTimestamp := metav1.NewTime(node.CreatedAt)
 
-	return appv1.ResourceNode{
+	rn := appv1.ResourceNode{
 		ResourceRef: appv1.ResourceRef{
 			UID:       string(node.UID),
 			Name:      node.Key.Name,
@@ -301,6 +412,21 @@ func nodeToResourceNode(node *ResourceNode) appv1.ResourceNode {
 		ResourceVersion: node.ResourceVersion,
 		CreatedAt:       &creationTimestamp,
 	}
+
+	// Populate enrichment info from CachedInfo if available
+	if info, ok := node.CachedInfo.(*statecache.ResourceInfo); ok && info != nil {
+		rn.Info = info.Info
+		rn.Images = info.Images
+		if info.Health != nil {
+			rn.Health = &appv1.HealthStatus{
+				Status:  info.Health.Status,
+				Message: info.Health.Message,
+			}
+		}
+		rn.NetworkingInfo = info.NetworkingInfo
+	}
+
+	return rn
 }
 
 // nodeToCacheResource converts a ResourceNode to a gitops-engine cache.Resource
@@ -314,6 +440,8 @@ func nodeToCacheResource(node *ResourceNode) *cache.Resource {
 			UID:        types.UID(node.UID),
 		},
 		ResourceVersion: node.ResourceVersion,
+		Info:            node.CachedInfo,
+		Resource:        node.Resource,
 	}
 	if node.Info != nil {
 		res.OwnerRefs = node.Info.OwnerRefs
@@ -321,14 +449,126 @@ func nodeToCacheResource(node *ResourceNode) *cache.Resource {
 	return res
 }
 
-// clusterCacheAdapter wraps a single cluster's cache operations
+// clusterCacheAdapter wraps a single cluster's cache operations and implements
+// the cache.ClusterCache interface from gitops-engine.
 type clusterCacheAdapter struct {
-	graphCache *GraphCache
-	server     string
+	graphCache      *GraphCache
+	server          string
+	argocdNamespace string // ArgoCD installation namespace for computing app instance names
+
+	// Handler management
+	handlersLock            sync.Mutex
+	handlerKey              uint64
+	resourceUpdatedHandlers map[uint64]cache.OnResourceUpdatedHandler
+	eventHandlers           map[uint64]cache.OnEventHandler
+	processEventsHandlers   map[uint64]cache.OnProcessEventsHandler
+
+	// Sync state — syncedCh is closed when initial discovery completes
+	synced   atomic.Bool
+	syncedCh chan struct{}
+	syncOnce sync.Once
+
+	// Cached GVK parser (lazy-initialized, cleared on Invalidate)
+	gvkParser     *managedfields.GvkParser
+	gvkParserLock sync.Mutex
+}
+
+func newClusterCacheAdapter(gc *GraphCache, server string, onObjectUpdated statecache.ObjectUpdatedHandler, argocdNamespace string) *clusterCacheAdapter {
+	adapter := &clusterCacheAdapter{
+		graphCache:              gc,
+		server:                  server,
+		argocdNamespace:         argocdNamespace,
+		resourceUpdatedHandlers: make(map[uint64]cache.OnResourceUpdatedHandler),
+		eventHandlers:           make(map[uint64]cache.OnEventHandler),
+		processEventsHandlers:   make(map[uint64]cache.OnProcessEventsHandler),
+		syncedCh:                make(chan struct{}),
+	}
+	// synced starts as false — will be signaled after Start() completes
+
+	// Wire up resource update notifications from GraphCache to adapter handlers
+	gc.SetResourceUpdateCallback(func(newRes, oldRes *ResourceNode, obj *unstructured.Unstructured, eventType watch.EventType) {
+		// Notify OnEvent handlers
+		adapter.notifyEvent(eventType, obj)
+
+		// Build cache.Resource for OnResourceUpdated handlers
+		var newCacheRes, oldCacheRes *cache.Resource
+		if newRes != nil {
+			newCacheRes = nodeToCacheResource(newRes)
+		}
+		if oldRes != nil {
+			oldCacheRes = nodeToCacheResource(oldRes)
+		}
+
+		// Build namespace resources map
+		ns := ""
+		if newRes != nil {
+			ns = newRes.Key.Namespace
+		} else if oldRes != nil {
+			ns = oldRes.Key.Namespace
+		}
+
+		var nsResources map[kube.ResourceKey]*cache.Resource
+		if ns != "" && gc.graph != nil {
+			nsResources = make(map[kube.ResourceKey]*cache.Resource)
+			allNodes := gc.graph.GetAllNodes()
+			for _, node := range allNodes {
+				if node.Key.Namespace == ns {
+					nsResources[node.Key] = nodeToCacheResource(node)
+				}
+			}
+		}
+
+		adapter.notifyResourceUpdated(newCacheRes, oldCacheRes, nsResources)
+
+		// Notify the controller's ObjectUpdatedHandler so it re-queues affected apps.
+		// This is critical: without this, the controller won't know to re-reconcile
+		// when resources change via watch events.
+		if onObjectUpdated != nil {
+			toNotify := make(map[string]bool)
+			var ref v1.ObjectReference
+			if newRes != nil {
+				ref = v1.ObjectReference{
+					APIVersion: schema.GroupVersion{Group: newRes.Key.Group, Version: newRes.Version}.String(),
+					Kind:       newRes.Key.Kind,
+					Namespace:  newRes.Key.Namespace,
+					Name:       newRes.Key.Name,
+					UID:        types.UID(newRes.UID),
+				}
+			} else if oldRes != nil {
+				ref = v1.ObjectReference{
+					APIVersion: schema.GroupVersion{Group: oldRes.Key.Group, Version: oldRes.Version}.String(),
+					Kind:       oldRes.Key.Kind,
+					Namespace:  oldRes.Key.Namespace,
+					Name:       oldRes.Key.Name,
+					UID:        types.UID(oldRes.UID),
+				}
+			}
+
+			for _, r := range []*ResourceNode{newRes, oldRes} {
+				if r == nil {
+					continue
+				}
+				if r.ManagedBy != "" {
+					isRoot := len(r.Parents) == 0
+					toNotify[r.ManagedBy] = isRoot || toNotify[r.ManagedBy]
+				}
+			}
+
+			if len(toNotify) > 0 {
+				onObjectUpdated(toNotify, ref)
+			}
+		}
+	})
+
+	return adapter
 }
 
 // GetServerVersion returns the Kubernetes server version
 func (c *clusterCacheAdapter) GetServerVersion() string {
+	if c.graphCache == nil || c.graphCache.watchManager == nil {
+		log.Warn("GetServerVersion called but graphCache or watchManager is nil")
+		return ""
+	}
 	info, err := c.graphCache.watchManager.GetDiscoveryClient().ServerVersion()
 	if err != nil {
 		log.Warnf("Failed to get server version: %v", err)
@@ -339,6 +579,10 @@ func (c *clusterCacheAdapter) GetServerVersion() string {
 
 // GetAPIResources returns the list of API resources
 func (c *clusterCacheAdapter) GetAPIResources() []kube.APIResourceInfo {
+	if c.graphCache == nil || c.graphCache.watchManager == nil {
+		log.Warn("GetAPIResources called but graphCache or watchManager is nil")
+		return []kube.APIResourceInfo{}
+	}
 	lists, err := c.graphCache.watchManager.GetDiscoveryClient().ServerPreferredResources()
 	if err != nil {
 		log.Warnf("Failed to get API resources: %v", err)
@@ -368,7 +612,10 @@ func (c *clusterCacheAdapter) GetAPIResources() []kube.APIResourceInfo {
 
 // IsNamespaced returns whether a GroupKind is namespaced
 func (c *clusterCacheAdapter) IsNamespaced(gk schema.GroupKind) (bool, error) {
-	// First check if we already watch this type (with proper locking)
+	if c.graphCache == nil || c.graphCache.watchManager == nil {
+		return false, fmt.Errorf("graphCache or watchManager is nil")
+	}
+	// First check if we already watch this type
 	c.graphCache.watchManager.watchLock.RLock()
 	handle, exists := c.graphCache.watchManager.watches[gk]
 	c.graphCache.watchManager.watchLock.RUnlock()
@@ -390,6 +637,9 @@ func (c *clusterCacheAdapter) IsNamespaced(gk schema.GroupKind) (bool, error) {
 
 // GetClusterInfo returns cluster information
 func (c *clusterCacheAdapter) GetClusterInfo() cache.ClusterInfo {
+	if c.graphCache == nil {
+		return cache.ClusterInfo{}
+	}
 	metrics := c.graphCache.GetMetrics()
 
 	return cache.ClusterInfo{
@@ -407,7 +657,7 @@ func (c *clusterCacheAdapter) IterateHierarchy(key kube.ResourceKey, action func
 
 func (c *clusterCacheAdapter) iterateHierarchyRecursive(key kube.ResourceKey, action func(child appv1.ResourceNode, appName string) bool, visited map[kube.ResourceKey]bool) error {
 	if visited[key] {
-		return nil // Cycle detected, stop branch
+		return nil
 	}
 	visited[key] = true
 
@@ -431,14 +681,59 @@ func (c *clusterCacheAdapter) iterateHierarchyRecursive(key kube.ResourceKey, ac
 	return nil
 }
 
-// IterateHierarchyV2 iterates resource tree starting from the specified top level resources and executes callback for each resource in the tree
-// Properly implements recursive traversal with cycle detection
+// iterateHierarchyRecursiveSkipMissing silently skips missing resources instead of
+// returning errors. Used by IterateHierarchyV2 which may receive keys for resources
+// not yet in cache.
+func (c *clusterCacheAdapter) iterateHierarchyRecursiveSkipMissing(key kube.ResourceKey, action func(child appv1.ResourceNode, appName string) bool, visited map[kube.ResourceKey]bool) {
+	if visited[key] {
+		return
+	}
+	visited[key] = true
+
+	node, exists := c.graphCache.graph.Get(key)
+	if !exists {
+		return
+	}
+
+	resNode := nodeToResourceNode(node)
+	if !action(resNode, node.ManagedBy) {
+		return
+	}
+
+	children := c.graphCache.graph.GetChildren(key)
+	for _, child := range children {
+		c.iterateHierarchyRecursiveSkipMissing(child.Key, action, visited)
+	}
+}
+
+// IterateHierarchyV2 iterates resource tree starting from the specified top level resources
+// and provides namespace resources to the callback for context.
+// Handles both within-namespace and cross-namespace parent-child relationships.
 func (c *clusterCacheAdapter) IterateHierarchyV2(keys []kube.ResourceKey, action func(resource *cache.Resource, namespaceResources map[kube.ResourceKey]*cache.Resource) bool) {
+	// Build namespace resource maps lazily
+	nsResourceCache := make(map[string]map[kube.ResourceKey]*cache.Resource)
+	getNsResources := func(namespace string) map[kube.ResourceKey]*cache.Resource {
+		if namespace == "" {
+			return nil
+		}
+		if cached, ok := nsResourceCache[namespace]; ok {
+			return cached
+		}
+		nsMap := make(map[kube.ResourceKey]*cache.Resource)
+		allNodes := c.graphCache.graph.GetAllNodes()
+		for _, node := range allNodes {
+			if node.Key.Namespace == namespace {
+				nsMap[node.Key] = nodeToCacheResource(node)
+			}
+		}
+		nsResourceCache[namespace] = nsMap
+		return nsMap
+	}
+
 	visited := make(map[kube.ResourceKey]bool)
 
 	var traverse func(key kube.ResourceKey)
 	traverse = func(key kube.ResourceKey) {
-		// Cycle detection
 		if visited[key] {
 			return
 		}
@@ -450,100 +745,225 @@ func (c *clusterCacheAdapter) IterateHierarchyV2(keys []kube.ResourceKey, action
 		}
 
 		res := nodeToCacheResource(node)
+		nsResources := getNsResources(node.Key.Namespace)
 
-		// Call action - if it returns false, stop traversing this branch
-		if !action(res, nil) {
+		if !action(res, nsResources) {
 			return
 		}
 
-		// Recursively traverse children
+		// Traverse direct children (may be cross-namespace)
 		children := c.graphCache.graph.GetChildren(key)
 		for _, child := range children {
 			traverse(child.Key)
 		}
+
+		// For cluster-scoped resources, also check for cross-namespace children
+		// that reference this resource by UID via OwnerReferences.
+		// This handles Crossplane-style hierarchies where cluster-scoped
+		// resources own namespaced resources in different namespaces.
+		if node.Key.Namespace == "" && node.UID != "" {
+			c.traverseCrossNamespaceChildren(node.UID, visited, traverse)
+		}
 	}
 
-	// Traverse from each top-level key
 	for _, key := range keys {
 		traverse(key)
 	}
 }
 
-// GetManagedLiveObjsForApp returns live objects managed by the application
-// Returns objects from cache (no API calls) for performance
-func (c *clusterCacheAdapter) GetManagedLiveObjsForApp(app *appv1.Application, targetObjs []*unstructured.Unstructured) (map[kube.ResourceKey]*unstructured.Unstructured, error) {
-	appName := app.InstanceName(app.Namespace)
-	resources := c.graphCache.GetResourcesByApplication(appName)
-	result := make(map[kube.ResourceKey]*unstructured.Unstructured, len(resources))
+// traverseCrossNamespaceChildren finds children that reference the given parent UID
+// across all namespaces. Used for cluster-scoped parents owning namespaced children.
+func (c *clusterCacheAdapter) traverseCrossNamespaceChildren(parentUID string, visited map[kube.ResourceKey]bool, traverse func(kube.ResourceKey)) {
+	allNodes := c.graphCache.graph.GetAllNodes()
+	for _, node := range allNodes {
+		if visited[node.Key] {
+			continue
+		}
+		for _, parent := range node.Parents {
+			if parent.UID == parentUID {
+				traverse(node.Key)
+				break
+			}
+		}
+	}
+}
 
-	// Build map of target object keys for quick lookup
-	targetKeys := make(map[kube.ResourceKey]bool, len(targetObjs))
-	for _, obj := range targetObjs {
-		targetKeys[kube.GetResourceKey(obj)] = true
+// GetManagedLiveObjsForApp returns live objects managed by the application.
+// Uses a two-phase approach matching the traditional gitops-engine cache:
+// Phase 1: Collect root resources from cache that belong to this app.
+// Phase 2: For each targetObj not found, fetch from API and auto-discover the type.
+func (c *clusterCacheAdapter) GetManagedLiveObjsForApp(app *appv1.Application, targetObjs []*unstructured.Unstructured) (map[kube.ResourceKey]*unstructured.Unstructured, error) {
+	appName := app.InstanceName(c.argocdNamespace)
+	result := make(map[kube.ResourceKey]*unstructured.Unstructured)
+
+	// Phase 1: Collect root managed resources from cache
+	resources := c.graphCache.GetResourcesByApplication(appName)
+	for _, res := range resources {
+		if res.Resource != nil && len(res.Parents) == 0 {
+			result[res.Key] = res.Resource.DeepCopy()
+		}
 	}
 
-	// Return cached objects (no API calls!)
-	for _, res := range resources {
-		key := res.Key
-
-		// Only return objects that are in the target list (if provided)
-		if len(targetObjs) > 0 && !targetKeys[key] {
+	// Phase 2: For each targetObj not in result, try cache lookup then API fallback
+	for _, targetObj := range targetObjs {
+		key := kube.GetResourceKey(targetObj)
+		if _, exists := result[key]; exists {
 			continue
 		}
 
-		// Return the cached object
-		if res.Resource != nil {
-			// Deep copy to prevent external modifications
-			result[key] = res.Resource.DeepCopy()
-		} else {
-			// Fallback: resource was added before we started storing full objects
-			// This should be rare after initial cache population
+		obj, err := c.resolveResourceForSync(key)
+		if err != nil {
 			log.WithFields(log.Fields{
 				"component": "graph-cache",
 				"key":       key,
-			}).Warn("Resource in cache but full object not stored")
+			}).WithError(err).Warn("Failed to resolve resource for sync")
+			continue
+		}
+		if obj != nil {
+			result[key] = obj
 		}
 	}
 
 	return result, nil
 }
 
-// GetManagedLiveObjs returns managed objects
-// Returns cached objects matching the isManaged predicate (no API calls)
-func (c *clusterCacheAdapter) GetManagedLiveObjs(targetObjs []*unstructured.Unstructured, isManaged func(r *cache.Resource) bool) (map[kube.ResourceKey]*unstructured.Unstructured, error) {
-	result := make(map[kube.ResourceKey]*unstructured.Unstructured)
-
-	// Build map of target object keys for quick lookup
-	targetKeys := make(map[kube.ResourceKey]bool)
-	for _, obj := range targetObjs {
-		targetKeys[kube.GetResourceKey(obj)] = true
+// resolveResourceForSync resolves a resource for sync operations.
+// It tries cache first, then falls back to the Kubernetes API.
+// If the resource type is not watched, it starts a watch and discovers descendants.
+//
+// IMPORTANT: We always fall back to the API when a resource is not in cache,
+// even if the type is watched. A watch may have just been started (e.g., when
+// processing an earlier targetObj in the same GetManagedLiveObjs call) and its
+// initial LIST may not have completed yet. Only a NotFound from the API means
+// the resource truly doesn't exist.
+func (c *clusterCacheAdapter) resolveResourceForSync(key kube.ResourceKey) (*unstructured.Unstructured, error) {
+	if c.graphCache == nil || c.graphCache.graph == nil {
+		return nil, fmt.Errorf("graphCache or graph is nil")
+	}
+	// Check if resource exists in cache
+	if node, exists := c.graphCache.graph.Get(key); exists {
+		if node.Resource != nil {
+			return node.Resource.DeepCopy(), nil
+		}
+		// In cache but no resource body — fetch from API
+		return c.fetchResourceFromAPI(key)
 	}
 
-	// Get all nodes from the cache
+	// Not in cache — always fetch from API.
+	// We cannot assume "watched type + not in cache = doesn't exist" because
+	// the watch might have been started moments ago and not yet synced.
+	obj, err := c.fetchResourceFromAPI(key)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil // Resource truly doesn't exist
+		}
+		return nil, err
+	}
+	if obj != nil {
+		// Add to graph cache
+		c.graphCache.addResourceToGraph(obj)
+		// Start watching this type and its descendants if not already watched
+		gk := schema.GroupKind{Group: key.Group, Kind: key.Kind}
+		if !c.graphCache.watchManager.IsTypeWatched(gk) {
+			c.graphCache.ensureWatchAndDescendants(gk)
+		}
+	}
+	return obj, nil
+}
+
+// isNamespaceManaged returns whether a namespace is in the managed set.
+// Returns true if no namespace restrictions are configured (all namespaces managed).
+func (c *clusterCacheAdapter) isNamespaceManaged(ns string) bool {
+	if len(c.graphCache.namespaces) == 0 {
+		return true
+	}
+	for _, managed := range c.graphCache.namespaces {
+		if managed == ns {
+			return true
+		}
+	}
+	return false
+}
+
+// fetchResourceFromAPI fetches a single resource from the Kubernetes API.
+func (c *clusterCacheAdapter) fetchResourceFromAPI(key kube.ResourceKey) (*unstructured.Unstructured, error) {
+	if c.graphCache == nil || c.graphCache.watchManager == nil {
+		return nil, fmt.Errorf("graphCache or watchManager is nil")
+	}
+
+	// Discover the GVR for this resource
+	gk := schema.GroupKind{Group: key.Group, Kind: key.Kind}
+	gvr, _, err := c.graphCache.watchManager.discoverResource(gk)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover resource %s: %w", gk, err)
+	}
+
+	dynClient := c.graphCache.GetDynamicClient()
+	if dynClient == nil {
+		return nil, fmt.Errorf("dynamic client is nil for cluster %s", c.server)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var obj *unstructured.Unstructured
+	if key.Namespace != "" {
+		obj, err = dynClient.Resource(gvr).Namespace(key.Namespace).Get(ctx, key.Name, metav1.GetOptions{})
+	} else {
+		obj, err = dynClient.Resource(gvr).Get(ctx, key.Name, metav1.GetOptions{})
+	}
+	if err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+// GetManagedLiveObjs returns managed objects matching the isManaged predicate.
+// Uses a two-phase approach matching the traditional gitops-engine cache:
+// Phase 1: Collect root managed resources from cache using the isManaged predicate.
+// Phase 2: For each targetObj not found, fetch from API and auto-discover the type.
+func (c *clusterCacheAdapter) GetManagedLiveObjs(targetObjs []*unstructured.Unstructured, isManaged func(r *cache.Resource) bool) (map[kube.ResourceKey]*unstructured.Unstructured, error) {
+	// Validate namespace management
+	for _, obj := range targetObjs {
+		ns := obj.GetNamespace()
+		if len(c.graphCache.namespaces) > 0 && ns != "" && !c.isNamespaceManaged(ns) {
+			gvk := obj.GroupVersionKind()
+			return nil, fmt.Errorf("namespace %q for %s %q is not managed", ns, gvk.Kind, obj.GetName())
+		}
+	}
+
+	result := make(map[kube.ResourceKey]*unstructured.Unstructured)
+
+	// Phase 1: Collect root managed resources from cache
 	allNodes := c.graphCache.graph.GetAllNodes()
-
 	for _, node := range allNodes {
-		key := node.Key
-
-		// Check if in target list (if provided)
-		if len(targetObjs) > 0 && !targetKeys[key] {
+		if node.Resource == nil || len(node.Parents) > 0 {
 			continue
 		}
-
-		// Check if managed using the provided predicate
 		res := nodeToCacheResource(node)
 		if isManaged != nil && !isManaged(res) {
 			continue
 		}
+		result[node.Key] = node.Resource.DeepCopy()
+	}
 
-		// Return the cached object (no API call!)
-		if node.Resource != nil {
-			result[key] = node.Resource.DeepCopy()
-		} else {
+	// Phase 2: For each targetObj not in result, try cache lookup then API fallback
+	for _, targetObj := range targetObjs {
+		key := kube.GetResourceKey(targetObj)
+		if _, exists := result[key]; exists {
+			continue
+		}
+
+		obj, err := c.resolveResourceForSync(key)
+		if err != nil {
 			log.WithFields(log.Fields{
 				"component": "graph-cache",
 				"key":       key,
-			}).Warn("Resource in cache but full object not stored")
+			}).WithError(err).Warn("Failed to resolve resource for sync")
+			continue
+		}
+		if obj != nil {
+			result[key] = obj
 		}
 	}
 
@@ -556,8 +976,13 @@ func (c *clusterCacheAdapter) IterateResources(callback func(res *cache.Resource
 
 	for _, node := range allResources {
 		resource := nodeToCacheResource(node)
-		info := &statecache.ResourceInfo{
-			AppName: node.ManagedBy,
+		var info *statecache.ResourceInfo
+		if ri, ok := node.CachedInfo.(*statecache.ResourceInfo); ok && ri != nil {
+			info = ri
+		} else {
+			info = &statecache.ResourceInfo{
+				AppName: node.ManagedBy,
+			}
 		}
 		callback(resource, info)
 	}
@@ -575,21 +1000,46 @@ func (c *clusterCacheAdapter) GetNamespaceTopLevelResources(namespace string) (m
 		}
 
 		if len(node.Parents) == 0 {
-			key := node.Key
-			result[key] = nodeToResourceNode(node)
+			result[node.Key] = nodeToResourceNode(node)
 		}
 	}
 
 	return result, nil
 }
 
-// EnsureSynced checks if the cache is synced
+// EnsureSynced blocks until the cache is synced (initial discovery complete).
+// Returns error if sync doesn't complete within 30 seconds.
 func (c *clusterCacheAdapter) EnsureSynced() error {
-	return nil
+	// Fast path: already synced
+	if c.synced.Load() {
+		return nil
+	}
+
+	// Block until sync completes or timeout
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-c.syncedCh:
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("timeout waiting for cache sync for cluster %s", c.server)
+	}
+}
+
+// markSynced signals that initial sync is complete. Safe to call multiple times.
+func (c *clusterCacheAdapter) markSynced() {
+	c.syncOnce.Do(func() {
+		c.synced.Store(true)
+		close(c.syncedCh)
+	})
 }
 
 // GetOpenAPISchema returns the OpenAPI schema
 func (c *clusterCacheAdapter) GetOpenAPISchema() openapi.Resources {
+	if c.graphCache == nil || c.graphCache.watchManager == nil {
+		log.Warn("GetOpenAPISchema called but graphCache or watchManager is nil")
+		return nil
+	}
 	doc, err := c.graphCache.watchManager.GetDiscoveryClient().OpenAPISchema()
 	if err != nil {
 		log.Warnf("Failed to get OpenAPI schema: %v", err)
@@ -604,14 +1054,75 @@ func (c *clusterCacheAdapter) GetOpenAPISchema() openapi.Resources {
 	return resources
 }
 
-// GetGVKParser returns the GVK parser
+// GetGVKParser returns the GVK parser, creating it lazily from the OpenAPI schema.
 func (c *clusterCacheAdapter) GetGVKParser() *managedfields.GvkParser {
-	return nil
+	c.gvkParserLock.Lock()
+	defer c.gvkParserLock.Unlock()
+
+	if c.gvkParser != nil {
+		return c.gvkParser
+	}
+
+	if c.graphCache == nil || c.graphCache.watchManager == nil {
+		log.Warn("GetGVKParser called but graphCache or watchManager is nil")
+		return nil
+	}
+
+	doc, err := c.graphCache.watchManager.GetDiscoveryClient().OpenAPISchema()
+	if err != nil {
+		log.Warnf("Failed to get OpenAPI schema for GVKParser: %v", err)
+		return nil
+	}
+
+	models, err := proto.NewOpenAPIData(doc)
+	if err != nil {
+		log.Warnf("Failed to parse OpenAPI data for GVKParser: %v", err)
+		return nil
+	}
+
+	parser, err := managedfields.NewGVKParser(models, false)
+	if err != nil {
+		log.Warnf("Failed to create GVKParser: %v", err)
+		return nil
+	}
+
+	c.gvkParser = parser
+	return c.gvkParser
 }
 
-// Invalidate invalidates the cache
+// Invalidate invalidates the cache, triggering a re-discovery.
+// Resets sync state, stops all watches, and re-runs discovery.
+// Note: UpdateSettingsFunc options are designed for the gitops-engine clusterCache
+// and cannot be directly applied. Settings changes should be handled at the
+// GraphLiveStateCache level by re-creating the adapter.
 func (c *clusterCacheAdapter) Invalidate(opts ...cache.UpdateSettingsFunc) {
-	go c.graphCache.DiscoverManagedResources()
+	if len(opts) > 0 {
+		log.WithField("component", "graph-cache").
+			Warn("Invalidate called with UpdateSettingsFunc options which are not supported by graph cache adapter")
+	}
+
+	// Reset sync state
+	c.synced.Store(false)
+	c.syncOnce = sync.Once{} // Reset so markSynced can be called again
+	c.syncedCh = make(chan struct{})
+
+	// Stop all watches
+	if c.graphCache != nil && c.graphCache.watchManager != nil {
+		c.graphCache.watchManager.StopAllWatches()
+	}
+
+	// Clear GVK parser cache
+	c.gvkParserLock.Lock()
+	c.gvkParser = nil
+	c.gvkParserLock.Unlock()
+
+	// Re-run discovery and signal sync
+	go func() {
+		if err := c.graphCache.DiscoverManagedResources(); err != nil {
+			log.WithError(err).Warn("Failed to re-discover resources after invalidation")
+		}
+		c.markSynced()
+	}()
 }
 
 // FindResources finds resources matching the given predicates
@@ -641,14 +1152,82 @@ func (c *clusterCacheAdapter) FindResources(namespace string, predicates ...func
 	return result
 }
 
+// OnResourceUpdated registers a handler that is called when a resource is updated in the cache.
+// Returns an unsubscribe function to remove the handler.
 func (c *clusterCacheAdapter) OnResourceUpdated(handler cache.OnResourceUpdatedHandler) cache.Unsubscribe {
-	return func() {}
+	c.handlersLock.Lock()
+	defer c.handlersLock.Unlock()
+
+	c.handlerKey++
+	key := c.handlerKey
+	c.resourceUpdatedHandlers[key] = handler
+
+	return func() {
+		c.handlersLock.Lock()
+		defer c.handlersLock.Unlock()
+		delete(c.resourceUpdatedHandlers, key)
+	}
 }
 
+// OnEvent registers a handler that is called for every Kubernetes watch event.
+// Returns an unsubscribe function to remove the handler.
 func (c *clusterCacheAdapter) OnEvent(handler cache.OnEventHandler) cache.Unsubscribe {
-	return func() {}
+	c.handlersLock.Lock()
+	defer c.handlersLock.Unlock()
+
+	c.handlerKey++
+	key := c.handlerKey
+	c.eventHandlers[key] = handler
+
+	return func() {
+		c.handlersLock.Lock()
+		defer c.handlersLock.Unlock()
+		delete(c.eventHandlers, key)
+	}
 }
 
+// OnProcessEventsHandler registers a handler that is called when events are processed.
+// Returns an unsubscribe function to remove the handler.
 func (c *clusterCacheAdapter) OnProcessEventsHandler(handler cache.OnProcessEventsHandler) cache.Unsubscribe {
-	return func() {}
+	c.handlersLock.Lock()
+	defer c.handlersLock.Unlock()
+
+	c.handlerKey++
+	key := c.handlerKey
+	c.processEventsHandlers[key] = handler
+
+	return func() {
+		c.handlersLock.Lock()
+		defer c.handlersLock.Unlock()
+		delete(c.processEventsHandlers, key)
+	}
+}
+
+// notifyResourceUpdated calls all registered OnResourceUpdated handlers.
+// Called by the graph cache when a resource changes.
+func (c *clusterCacheAdapter) notifyResourceUpdated(newRes *cache.Resource, oldRes *cache.Resource, nsResources map[kube.ResourceKey]*cache.Resource) {
+	c.handlersLock.Lock()
+	handlers := make([]cache.OnResourceUpdatedHandler, 0, len(c.resourceUpdatedHandlers))
+	for _, h := range c.resourceUpdatedHandlers {
+		handlers = append(handlers, h)
+	}
+	c.handlersLock.Unlock()
+
+	for _, h := range handlers {
+		h(newRes, oldRes, nsResources)
+	}
+}
+
+// notifyEvent calls all registered OnEvent handlers.
+func (c *clusterCacheAdapter) notifyEvent(eventType watch.EventType, un *unstructured.Unstructured) {
+	c.handlersLock.Lock()
+	handlers := make([]cache.OnEventHandler, 0, len(c.eventHandlers))
+	for _, h := range c.eventHandlers {
+		handlers = append(handlers, h)
+	}
+	c.handlersLock.Unlock()
+
+	for _, h := range handlers {
+		h(eventType, un)
+	}
 }

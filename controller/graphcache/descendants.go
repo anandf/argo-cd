@@ -497,12 +497,11 @@ func (r ResourceReference) ToResourceKey() kube.ResourceKey {
 
 // BuildOwnerReference creates an OwnerReference from a ResourceNode.
 func BuildOwnerReference(node *ResourceNode) metav1.OwnerReference {
-	apiVersion := node.Key.Group
-	if apiVersion != "" {
-		apiVersion = apiVersion + "/v1"
-	} else {
-		apiVersion = "v1"
+	version := node.Version
+	if version == "" {
+		version = "v1"
 	}
+	apiVersion := schema.GroupVersion{Group: node.Key.Group, Version: version}.String()
 
 	return metav1.OwnerReference{
 		APIVersion: apiVersion,

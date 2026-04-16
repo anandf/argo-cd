@@ -14,36 +14,33 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-func TestNewRelationshipPersistence(t *testing.T) {
+func newTestPersistence(t *testing.T) (*RelationshipPersistenceManager, *TypeRelationshipCache, *fake.Clientset) {
+	t.Helper()
 	kubeClient := fake.NewSimpleClientset()
 	cache := NewTypeRelationshipCache()
-
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
-
-	assert.NotNil(t, persistence)
-	assert.Equal(t, "argocd", persistence.namespace)
-	assert.Equal(t, RelationshipConfigMapName, persistence.configMapName)
-	assert.Equal(t, DefaultPersistInterval, persistence.persistInterval)
+	store := NewConfigMapStore(ConfigMapStoreConfig{
+		KubeClient: kubeClient,
+		Namespace:  "argocd",
+	})
+	manager := NewRelationshipPersistenceManager(PersistenceConfig{
+		Store: store,
+		Cache: cache,
+	})
+	return manager, cache, kubeClient
 }
 
-func TestSave_CreatesConfigMap(t *testing.T) {
-	kubeClient := fake.NewSimpleClientset()
-	cache := NewTypeRelationshipCache()
+func TestPersistenceManager_SaveCreatesConfigMap(t *testing.T) {
+	manager, cache, kubeClient := newTestPersistence(t)
 
-	// Add some learned relationships
 	cache.LearnRelationship(
 		schema.GroupVersionKind{Group: "custom.io", Version: "v1", Kind: "Foo"},
 		schema.GroupVersionKind{Group: "custom.io", Version: "v1", Kind: "Bar"},
 		5,
 	)
 
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
-
-	// Save relationships
-	err := persistence.Save()
+	err := manager.Save()
 	require.NoError(t, err)
 
-	// Verify ConfigMap was created
 	cm, err := kubeClient.CoreV1().ConfigMaps("argocd").Get(
 		context.Background(),
 		RelationshipConfigMapName,
@@ -52,85 +49,61 @@ func TestSave_CreatesConfigMap(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, cm)
 
-	// Verify labels
 	assert.Equal(t, "argocd-graph-cache", cm.Labels["app.kubernetes.io/name"])
 	assert.Equal(t, "relationship-cache", cm.Labels["app.kubernetes.io/component"])
 
-	// Verify data exists
 	data, ok := cm.Data[RelationshipDataKey]
 	assert.True(t, ok)
 	assert.NotEmpty(t, data)
 
-	// Parse and verify content
 	var persisted PersistedRelationships
 	err = json.Unmarshal([]byte(data), &persisted)
 	require.NoError(t, err)
-
 	assert.Equal(t, "v1", persisted.Version)
 	assert.True(t, len(persisted.Relationships) > 0)
 }
 
-func TestSave_UpdatesExistingConfigMap(t *testing.T) {
-	kubeClient := fake.NewSimpleClientset()
-	cache := NewTypeRelationshipCache()
+func TestPersistenceManager_SaveUpdatesExistingConfigMap(t *testing.T) {
+	manager, cache, kubeClient := newTestPersistence(t)
 
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
-
-	// First save
-	err := persistence.Save()
+	err := manager.Save()
 	require.NoError(t, err)
 
-	// Get the ConfigMap
-	_, err = kubeClient.CoreV1().ConfigMaps("argocd").Get(
-		context.Background(),
-		RelationshipConfigMapName,
-		metav1.GetOptions{},
-	)
-	require.NoError(t, err)
-
-	// Add more relationships
 	cache.LearnRelationship(
 		schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "Parent"},
 		schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "Child"},
 		3,
 	)
 
-	// Second save
-	time.Sleep(10 * time.Millisecond) // Ensure different timestamp
-	err = persistence.Save()
+	time.Sleep(10 * time.Millisecond)
+	err = manager.Save()
 	require.NoError(t, err)
 
-	// Get the updated ConfigMap
-	cm2, err := kubeClient.CoreV1().ConfigMaps("argocd").Get(
+	cm, err := kubeClient.CoreV1().ConfigMaps("argocd").Get(
 		context.Background(),
 		RelationshipConfigMapName,
 		metav1.GetOptions{},
 	)
 	require.NoError(t, err)
 
-	// Verify the data was updated by checking content
 	var persisted PersistedRelationships
-	err = json.Unmarshal([]byte(cm2.Data[RelationshipDataKey]), &persisted)
+	err = json.Unmarshal([]byte(cm.Data[RelationshipDataKey]), &persisted)
 	require.NoError(t, err)
-	assert.Greater(t, len(persisted.Relationships), 10) // Should have more than just seeded
+	assert.Greater(t, len(persisted.Relationships), 10)
 }
 
-func TestLoad_NoConfigMap(t *testing.T) {
-	kubeClient := fake.NewSimpleClientset()
-	cache := NewTypeRelationshipCache()
+func TestPersistenceManager_StartLoadsNoConfigMap(t *testing.T) {
+	manager, _, _ := newTestPersistence(t)
 
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
-
-	// Load should not error when ConfigMap doesn't exist
-	err := persistence.Load()
+	err := manager.Start()
 	assert.NoError(t, err)
 }
 
-func TestLoad_LoadsRelationships(t *testing.T) {
+func TestPersistenceManager_StartLoadsRelationships(t *testing.T) {
 	kubeClient := fake.NewSimpleClientset()
-	cache1 := NewTypeRelationshipCache()
 
-	// Add some relationships
+	// First: save some relationships with cache1
+	cache1 := NewTypeRelationshipCache()
 	cache1.LearnRelationship(
 		schema.GroupVersionKind{Group: "custom.io", Version: "v1", Kind: "Foo"},
 		schema.GroupVersionKind{Group: "custom.io", Version: "v1", Kind: "Bar"},
@@ -142,66 +115,49 @@ func TestLoad_LoadsRelationships(t *testing.T) {
 		5,
 	)
 
-	persistence1 := NewRelationshipPersistence(kubeClient, "argocd", cache1)
-
-	// Save relationships
-	err := persistence1.Save()
+	store1 := NewConfigMapStore(ConfigMapStoreConfig{KubeClient: kubeClient, Namespace: "argocd"})
+	mgr1 := NewRelationshipPersistenceManager(PersistenceConfig{Store: store1, Cache: cache1})
+	err := mgr1.Save()
 	require.NoError(t, err)
 
-	// Create a new cache (simulating restart)
+	// Second: create new cache (simulating restart) and load
 	cache2 := NewTypeRelationshipCache()
+	initialCount := len(cache2.GetAllRelationships())
 
-	// Before loading, cache2 should only have seeded relationships
-	allRels := cache2.GetAllRelationships()
-	initialCount := len(allRels)
-
-	persistence2 := NewRelationshipPersistence(kubeClient, "argocd", cache2)
-
-	// Load relationships
-	err = persistence2.Load()
+	store2 := NewConfigMapStore(ConfigMapStoreConfig{KubeClient: kubeClient, Namespace: "argocd"})
+	mgr2 := NewRelationshipPersistenceManager(PersistenceConfig{Store: store2, Cache: cache2})
+	err = mgr2.Start()
 	require.NoError(t, err)
 
-	// After loading, cache2 should have more relationships
-	allRels = cache2.GetAllRelationships()
+	allRels := cache2.GetAllRelationships()
 	assert.Greater(t, len(allRels), initialCount)
 
-	// Verify specific relationships were loaded
 	fooGVK := schema.GroupVersionKind{Group: "custom.io", Version: "v1", Kind: "Foo"}
 	barGVK := schema.GroupVersionKind{Group: "custom.io", Version: "v1", Kind: "Bar"}
-
 	descendants := cache2.GetDescendants(fooGVK)
 	assert.Contains(t, descendants, barGVK)
 
-	// Verify confidence was restored
 	confidence := cache2.GetConfidence(fooGVK, barGVK)
 	assert.Equal(t, 10, confidence)
 }
 
-func TestSave_FiltersLowConfidence(t *testing.T) {
-	kubeClient := fake.NewSimpleClientset()
-	cache := NewTypeRelationshipCache()
+func TestPersistenceManager_SaveFiltersLowConfidence(t *testing.T) {
+	manager, cache, kubeClient := newTestPersistence(t)
 
-	// Add relationship with confidence below minimum
 	cache.LearnRelationship(
 		schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "Low"},
 		schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "Confidence"},
 		1, // Below MinConfidenceToPersist (2)
 	)
-
-	// Add relationship with confidence above minimum
 	cache.LearnRelationship(
 		schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "High"},
 		schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "Confidence"},
 		5,
 	)
 
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
-
-	// Save relationships
-	err := persistence.Save()
+	err := manager.Save()
 	require.NoError(t, err)
 
-	// Load the ConfigMap
 	cm, err := kubeClient.CoreV1().ConfigMaps("argocd").Get(
 		context.Background(),
 		RelationshipConfigMapName,
@@ -213,7 +169,6 @@ func TestSave_FiltersLowConfidence(t *testing.T) {
 	err = json.Unmarshal([]byte(cm.Data[RelationshipDataKey]), &persisted)
 	require.NoError(t, err)
 
-	// Low confidence relationship should not be persisted
 	for _, rel := range persisted.Relationships {
 		if rel.Parent == "test.io/v1/Low" {
 			t.Error("Low confidence relationship should not be persisted")
@@ -221,24 +176,18 @@ func TestSave_FiltersLowConfidence(t *testing.T) {
 	}
 }
 
-func TestSave_IncludesMetadata(t *testing.T) {
-	kubeClient := fake.NewSimpleClientset()
-	cache := NewTypeRelationshipCache()
+func TestPersistenceManager_SaveIncludesMetadata(t *testing.T) {
+	manager, cache, kubeClient := newTestPersistence(t)
 
-	// Add a learned relationship
 	cache.LearnRelationship(
 		schema.GroupVersionKind{Group: "custom.io", Version: "v1", Kind: "Parent"},
 		schema.GroupVersionKind{Group: "custom.io", Version: "v1", Kind: "Child"},
 		3,
 	)
 
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
-
-	// Save relationships
-	err := persistence.Save()
+	err := manager.Save()
 	require.NoError(t, err)
 
-	// Load and verify metadata
 	cm, err := kubeClient.CoreV1().ConfigMaps("argocd").Get(
 		context.Background(),
 		RelationshipConfigMapName,
@@ -250,96 +199,52 @@ func TestSave_IncludesMetadata(t *testing.T) {
 	err = json.Unmarshal([]byte(cm.Data[RelationshipDataKey]), &persisted)
 	require.NoError(t, err)
 
-	// Verify metadata
 	assert.Greater(t, persisted.Metadata.TotalRelationships, 0)
-	assert.Greater(t, persisted.Metadata.SeededCount, 0) // Well-known patterns
-	assert.Greater(t, persisted.Metadata.LearnedCount, 0) // Our custom relationship
+	assert.Greater(t, persisted.Metadata.SeededCount, 0)
+	assert.Greater(t, persisted.Metadata.LearnedCount, 0)
 }
 
-func TestGetStats(t *testing.T) {
-	kubeClient := fake.NewSimpleClientset()
-	cache := NewTypeRelationshipCache()
+func TestPersistenceManager_GetStats(t *testing.T) {
+	manager, _, _ := newTestPersistence(t)
 
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
-
-	// Before any persistence
-	stats := persistence.GetStats()
+	stats := manager.GetStats()
 	assert.Equal(t, int64(0), stats["persistence_count"])
 
-	// After save
-	err := persistence.Save()
+	err := manager.Save()
 	require.NoError(t, err)
 
-	stats = persistence.GetStats()
+	stats = manager.GetStats()
 	assert.Equal(t, int64(1), stats["persistence_count"])
-	assert.NotNil(t, stats["last_persisted"])
-	assert.Equal(t, "argocd", stats["namespace"])
-	assert.Equal(t, RelationshipConfigMapName, stats["config_map_name"])
+	assert.Equal(t, "configmap", stats["store_type"])
+	assert.Equal(t, "argocd", stats["store_namespace"])
 }
 
-func TestParseGVKString(t *testing.T) {
-	testCases := []struct {
-		name     string
-		input    string
-		expected schema.GroupVersionKind
-		wantErr  bool
-	}{
-		{
-			name:  "Core resource (Pod)",
-			input: "/v1/Pod",
-			expected: schema.GroupVersionKind{
-				Group:   "",
-				Version: "v1",
-				Kind:    "Pod",
-			},
-			wantErr: false,
-		},
-		{
-			name:  "apps group resource",
-			input: "apps/v1/Deployment",
-			expected: schema.GroupVersionKind{
-				Group:   "apps",
-				Version: "v1",
-				Kind:    "Deployment",
-			},
-			wantErr: false,
-		},
-		{
-			name:  "Custom resource",
-			input: "custom.io/v1alpha1/MyResource",
-			expected: schema.GroupVersionKind{
-				Group:   "custom.io",
-				Version: "v1alpha1",
-				Kind:    "MyResource",
-			},
-			wantErr: false,
-		},
-		{
-			name:     "Invalid format",
-			input:    "invalid",
-			expected: schema.GroupVersionKind{},
-			wantErr:  true,
-		},
-	}
+func TestPersistenceManager_StopSavesOnShutdown(t *testing.T) {
+	manager, cache, kubeClient := newTestPersistence(t)
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result, err := parseGVKString(tc.input)
+	cache.LearnRelationship(
+		schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "A"},
+		schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "B"},
+		5,
+	)
 
-			if tc.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
-			}
-		})
-	}
+	err := manager.Start()
+	require.NoError(t, err)
+
+	err = manager.Stop()
+	require.NoError(t, err)
+
+	_, err = kubeClient.CoreV1().ConfigMaps("argocd").Get(
+		context.Background(),
+		RelationshipConfigMapName,
+		metav1.GetOptions{},
+	)
+	assert.NoError(t, err)
 }
 
-func TestStart_LoadsOnStartup(t *testing.T) {
+func TestPersistenceManager_StartWithPreExistingConfigMap(t *testing.T) {
 	kubeClient := fake.NewSimpleClientset()
 
-	// Create a ConfigMap with some relationships
 	relationships := PersistedRelationships{
 		Version:     "v1",
 		LastUpdated: time.Now(),
@@ -376,55 +281,22 @@ func TestStart_LoadsOnStartup(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Create persistence (should load on Start)
 	cache := NewTypeRelationshipCache()
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
+	store := NewConfigMapStore(ConfigMapStoreConfig{KubeClient: kubeClient, Namespace: "argocd"})
+	manager := NewRelationshipPersistenceManager(PersistenceConfig{Store: store, Cache: cache})
 
-	err = persistence.Start()
+	err = manager.Start()
 	require.NoError(t, err)
-	defer persistence.Stop()
 
-	// Verify relationship was loaded
 	parentGVK := schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "Parent"}
 	childGVK := schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "Child"}
-
 	descendants := cache.GetDescendants(parentGVK)
 	assert.Contains(t, descendants, childGVK)
 }
 
-func TestStop_SavesOnShutdown(t *testing.T) {
-	kubeClient := fake.NewSimpleClientset()
-	cache := NewTypeRelationshipCache()
-
-	// Add a relationship
-	cache.LearnRelationship(
-		schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "A"},
-		schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "B"},
-		5,
-	)
-
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
-
-	err := persistence.Start()
-	require.NoError(t, err)
-
-	// Stop should save
-	err = persistence.Stop()
-	require.NoError(t, err)
-
-	// Verify ConfigMap exists
-	_, err = kubeClient.CoreV1().ConfigMaps("argocd").Get(
-		context.Background(),
-		RelationshipConfigMapName,
-		metav1.GetOptions{},
-	)
-	assert.NoError(t, err)
-}
-
-func TestLoad_HandlesCorruptedData(t *testing.T) {
+func TestConfigMapStore_LoadHandlesCorruptedData(t *testing.T) {
 	kubeClient := fake.NewSimpleClientset()
 
-	// Create ConfigMap with invalid JSON
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      RelationshipConfigMapName,
@@ -442,18 +314,14 @@ func TestLoad_HandlesCorruptedData(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	cache := NewTypeRelationshipCache()
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
-
-	// Load should return error but not crash
-	err = persistence.Load()
+	store := NewConfigMapStore(ConfigMapStoreConfig{KubeClient: kubeClient, Namespace: "argocd"})
+	_, err = store.Load()
 	assert.Error(t, err)
 }
 
-func TestLoad_HandlesInvalidGVK(t *testing.T) {
+func TestPersistenceManager_StartSkipsInvalidGVK(t *testing.T) {
 	kubeClient := fake.NewSimpleClientset()
 
-	// Create ConfigMap with invalid GVK format
 	relationships := PersistedRelationships{
 		Version:     "v1",
 		LastUpdated: time.Now(),
@@ -487,16 +355,108 @@ func TestLoad_HandlesInvalidGVK(t *testing.T) {
 	require.NoError(t, err)
 
 	cache := NewTypeRelationshipCache()
-	persistence := NewRelationshipPersistence(kubeClient, "argocd", cache)
+	store := NewConfigMapStore(ConfigMapStoreConfig{KubeClient: kubeClient, Namespace: "argocd"})
+	manager := NewRelationshipPersistenceManager(PersistenceConfig{Store: store, Cache: cache})
 
-	// Load should not error, but should skip invalid entry
-	err = persistence.Load()
+	err = manager.Start()
 	assert.NoError(t, err)
 
-	// Cache should only have seeded relationships (invalid one skipped)
 	allRels := cache.GetAllRelationships()
 	for rel := range allRels {
-		// Should not have the invalid relationship
 		assert.NotEqual(t, "invalid-gvk-format", rel.Parent.String())
+	}
+}
+
+func TestParseGVKString(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected schema.GroupVersionKind
+		wantErr  bool
+	}{
+		{
+			name:  "Core resource (Pod)",
+			input: "/v1/Pod",
+			expected: schema.GroupVersionKind{
+				Group:   "",
+				Version: "v1",
+				Kind:    "Pod",
+			},
+		},
+		{
+			name:  "apps group resource",
+			input: "apps/v1/Deployment",
+			expected: schema.GroupVersionKind{
+				Group:   "apps",
+				Version: "v1",
+				Kind:    "Deployment",
+			},
+		},
+		{
+			name:  "Custom resource",
+			input: "custom.io/v1alpha1/MyResource",
+			expected: schema.GroupVersionKind{
+				Group:   "custom.io",
+				Version: "v1alpha1",
+				Kind:    "MyResource",
+			},
+		},
+		{
+			name:    "Invalid format",
+			input:   "invalid",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := parseGVKString(tc.input)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestGVKToString(t *testing.T) {
+	tests := []struct {
+		name     string
+		gvk      schema.GroupVersionKind
+		expected string
+	}{
+		{
+			name:     "Core resource",
+			gvk:      schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"},
+			expected: "/v1/Pod",
+		},
+		{
+			name:     "Apps group",
+			gvk:      schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+			expected: "apps/v1/Deployment",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, gvkToString(tc.gvk))
+		})
+	}
+}
+
+func TestGVKStringRoundTrip(t *testing.T) {
+	gvks := []schema.GroupVersionKind{
+		{Group: "", Version: "v1", Kind: "Pod"},
+		{Group: "apps", Version: "v1", Kind: "Deployment"},
+		{Group: "custom.io", Version: "v1alpha1", Kind: "MyResource"},
+	}
+
+	for _, gvk := range gvks {
+		str := gvkToString(gvk)
+		parsed, err := parseGVKString(str)
+		require.NoError(t, err)
+		assert.Equal(t, gvk, parsed, "round-trip failed for %s", str)
 	}
 }

@@ -78,7 +78,7 @@ type ResourceNode struct {
 	TrackingID string // Full tracking ID (e.g., "app:group/kind:ns/name")
 
 	// Graph relationships
-	Parents  []ParentRef        // Resources that own this one (from OwnerReferences)
+	Parents  []ParentRef       // Resources that own this one (from OwnerReferences)
 	Children []kube.ResourceKey // Resources owned by this one
 
 	// Metadata replacement for full object
@@ -87,6 +87,10 @@ type ResourceNode struct {
 	// Full resource object (for cache hits without API calls)
 	// This increases memory usage but prevents unnecessary API calls
 	Resource *unstructured.Unstructured
+
+	// CachedInfo stores the result of PopulateResourceInfoHandler.
+	// Type-assert to *controller/cache.ResourceInfo to access health, images, etc.
+	CachedInfo interface{}
 
 	// Metadata
 	CreatedAt time.Time
@@ -103,10 +107,15 @@ type GraphShard struct {
 }
 
 // ResourceGraph is the core graph structure storing all managed resources.
-// It provides efficient lookups by resource key, application, and type.
+// It provides efficient lookups by resource key, application, type, and UID.
 type ResourceGraph struct {
 	shards     []*GraphShard
 	shardCount int
+
+	// UID index for cross-namespace child lookups.
+	// Maps resource UID to ResourceKey for O(1) lookups.
+	uidIndex     map[string]kube.ResourceKey
+	uidIndexLock sync.RWMutex
 }
 
 // NewResourceGraph creates a new empty resource graph with the specified shard count.
@@ -119,6 +128,7 @@ func NewResourceGraph(shardCount int) *ResourceGraph {
 	g := &ResourceGraph{
 		shards:     make([]*GraphShard, shardCount),
 		shardCount: shardCount,
+		uidIndex:   make(map[string]kube.ResourceKey),
 	}
 
 	for i := 0; i < shardCount; i++ {
@@ -143,10 +153,10 @@ func (g *ResourceGraph) getShard(key kube.ResourceKey) *GraphShard {
 // It maintains all indices and relationships.
 func (g *ResourceGraph) AddOrUpdate(node *ResourceNode) {
 	shard := g.getShard(node.Key)
-
+	
 	// Update node and indices in its shard
 	shard.lock.Lock()
-
+	
 	var oldParents []ParentRef
 	var oldLabels map[string]string
 
@@ -155,7 +165,7 @@ func (g *ResourceGraph) AddOrUpdate(node *ResourceNode) {
 		node.CreatedAt = existing.CreatedAt
 		node.UpdatedAt = time.Now()
 		// Preserve children from existing node
-		node.Children = existing.Children
+		node.Children = existing.Children 
 		// Capture old parents
 		oldParents = make([]ParentRef, len(existing.Parents))
 		copy(oldParents, existing.Parents)
@@ -248,8 +258,15 @@ func (g *ResourceGraph) AddOrUpdate(node *ResourceNode) {
 		}
 		shard.labelIndex[label.key][label.value][node.Key] = true
 	}
-
+	
 	shard.lock.Unlock()
+
+	// Update UID index
+	if node.UID != "" {
+		g.uidIndexLock.Lock()
+		g.uidIndex[node.UID] = node.Key
+		g.uidIndexLock.Unlock()
+	}
 
 	// Update relationships (cross-shard)
 
@@ -258,19 +275,19 @@ func (g *ResourceGraph) AddOrUpdate(node *ResourceNode) {
 	for _, p := range node.Parents {
 		newParentsMap[p.ResourceKey] = true
 	}
-
+	
 	oldParentsMap := make(map[kube.ResourceKey]bool)
 	for _, p := range oldParents {
 		oldParentsMap[p.ResourceKey] = true
 	}
-
+	
 	// Add to new parents
 	for _, parentRef := range node.Parents {
 		if !oldParentsMap[parentRef.ResourceKey] {
 			g.addChildToParent(parentRef.ResourceKey, node.Key)
 		}
 	}
-
+	
 	// Remove from old parents
 	for _, parentRef := range oldParents {
 		if !newParentsMap[parentRef.ResourceKey] {
@@ -350,14 +367,22 @@ func (g *ResourceGraph) Delete(key kube.ResourceKey) {
 			}
 		}
 	}
-
-	// Capture relationships to clean up
+	
+	// Capture relationships and UID to clean up
+	uid := node.UID
 	parents := make([]ParentRef, len(node.Parents))
 	copy(parents, node.Parents)
 	children := make([]kube.ResourceKey, len(node.Children))
 	copy(children, node.Children)
 
 	shard.lock.Unlock()
+
+	// Remove from UID index
+	if uid != "" {
+		g.uidIndexLock.Lock()
+		delete(g.uidIndex, uid)
+		g.uidIndexLock.Unlock()
+	}
 
 	// Clean up relationships (cross-shard)
 	for _, parentRef := range parents {
@@ -398,6 +423,18 @@ func (g *ResourceGraph) removeParentFromChild(childKey, parentKey kube.ResourceK
 			}
 		}
 	}
+}
+
+// GetByUID looks up a resource by its UID. Used for cross-namespace parent lookups.
+func (g *ResourceGraph) GetByUID(uid string) (*ResourceNode, bool) {
+	g.uidIndexLock.RLock()
+	key, exists := g.uidIndex[uid]
+	g.uidIndexLock.RUnlock()
+
+	if !exists {
+		return nil, false
+	}
+	return g.Get(key)
 }
 
 // GetByApplication returns all resources managed by a specific application.
@@ -464,13 +501,13 @@ func (g *ResourceGraph) GetByLabel(key, value string) []*ResourceNode {
 func (g *ResourceGraph) GetChildren(key kube.ResourceKey) []*ResourceNode {
 	shard := g.getShard(key)
 	shard.lock.RLock()
-
+	
 	node, exists := shard.nodes[key]
 	if !exists {
 		shard.lock.RUnlock()
 		return nil
 	}
-
+	
 	childKeys := make([]kube.ResourceKey, len(node.Children))
 	copy(childKeys, node.Children)
 	shard.lock.RUnlock()
@@ -490,13 +527,13 @@ func (g *ResourceGraph) GetChildren(key kube.ResourceKey) []*ResourceNode {
 func (g *ResourceGraph) GetParents(key kube.ResourceKey) []*ResourceNode {
 	shard := g.getShard(key)
 	shard.lock.RLock()
-
+	
 	node, exists := shard.nodes[key]
 	if !exists {
 		shard.lock.RUnlock()
 		return nil
 	}
-
+	
 	parentRefs := make([]ParentRef, len(node.Parents))
 	copy(parentRefs, node.Parents)
 	shard.lock.RUnlock()
@@ -580,29 +617,29 @@ func (g *ResourceGraph) Size() int {
 // GetMetrics returns statistics about the graph for monitoring.
 func (g *ResourceGraph) GetMetrics() GraphMetrics {
 	metrics := GraphMetrics{
-		ResourcesByType: make(map[schema.GroupKind]int),
-		ResourcesByApp:  make(map[string]int),
+		ResourcesByType:      make(map[schema.GroupKind]int),
+		ResourcesByApp:       make(map[string]int),
 	}
-
+	
 	uniqueApps := make(map[string]bool)
 	uniqueTypes := make(map[schema.GroupKind]bool)
 
 	for _, shard := range g.shards {
 		shard.lock.RLock()
 		metrics.TotalResources += len(shard.nodes)
-
+		
 		for gk, keys := range shard.typeIndex {
 			metrics.ResourcesByType[gk] += len(keys)
 			uniqueTypes[gk] = true
 		}
-
+		
 		for app, keys := range shard.appIndex {
 			metrics.ResourcesByApp[app] += len(keys)
 			uniqueApps[app] = true
 		}
 		shard.lock.RUnlock()
 	}
-
+	
 	metrics.UniqueApplications = len(uniqueApps)
 	metrics.UniqueResourceTypes = len(uniqueTypes)
 

@@ -359,7 +359,7 @@ func TestGetPodInfo(t *testing.T) {
 `)
 
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Node", Value: "minikube"},
 			{Name: "Containers", Value: "0/1"},
@@ -421,7 +421,7 @@ func TestGetPodInfo(t *testing.T) {
 `)
 
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Running"},
 			{Name: "Node", Value: "minikube"},
@@ -492,7 +492,7 @@ func TestGetPodInfo(t *testing.T) {
     `)
 
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Running"},
 			{Name: "Node", Value: "minikube"},
@@ -550,7 +550,7 @@ func TestGetPodInfo(t *testing.T) {
 `)
 
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Running"},
 			{Name: "Node", Value: "minikube"},
@@ -610,7 +610,7 @@ func TestGetPodInfo(t *testing.T) {
 `)
 
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Init:0/1"},
 			{Name: "Node", Value: "minikube"},
@@ -668,7 +668,7 @@ func TestGetPodInfo(t *testing.T) {
 `)
 
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Init:0/2"},
 			{Name: "Node", Value: "minikube"},
@@ -727,7 +727,7 @@ func TestGetPodInfo(t *testing.T) {
 `)
 
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Init:1/2"},
 			{Name: "Node", Value: "minikube"},
@@ -789,7 +789,7 @@ func TestGetPodInfo(t *testing.T) {
 `)
 
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Running"},
 			{Name: "Node", Value: "minikube"},
@@ -833,7 +833,7 @@ func TestGetPodInfo(t *testing.T) {
 `)
 
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Init:0/1"},
 			{Name: "Node", Value: "minikube"},
@@ -868,7 +868,7 @@ func TestGetPodInfo(t *testing.T) {
             exitCode: 0
 `)
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Completed"},
 			{Name: "Node", Value: "minikube"},
@@ -907,7 +907,7 @@ func TestGetPodInfo(t *testing.T) {
             exitCode: 0
 `)
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Completed"},
 			{Name: "Node", Value: "minikube"},
@@ -939,7 +939,7 @@ func TestGetPodInfo(t *testing.T) {
             exitCode: 1
 `)
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Error"},
 			{Name: "Node", Value: "minikube"},
@@ -979,7 +979,7 @@ func TestGetPodInfo(t *testing.T) {
             exitCode: 1
 `)
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Error"},
 			{Name: "Node", Value: "minikube"},
@@ -1012,7 +1012,7 @@ func TestGetPodInfo(t *testing.T) {
             exitCode: 0
 `)
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Completed"},
 			{Name: "Node", Value: "minikube"},
@@ -1043,7 +1043,7 @@ func TestGetPodInfo(t *testing.T) {
           running: {}
 `)
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Terminating"},
 			{Name: "Node", Value: "minikube"},
@@ -1071,7 +1071,7 @@ func TestGetPodInfo(t *testing.T) {
     phase: Pending
 `)
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "Terminating"},
 			{Name: "Node", Value: "minikube"},
@@ -1103,7 +1103,7 @@ func TestGetPodInfo(t *testing.T) {
         reason: SchedulingGated
 `)
 		info := &ResourceInfo{}
-		populateNodeInfo(pod, info, []string{})
+		PopulateNodeInfo(pod, info, []string{})
 		assert.Equal(t, []v1alpha1.InfoItem{
 			{Name: "Status Reason", Value: "SchedulingGated"},
 			{Name: "Node", Value: "minikube"},
@@ -1134,7 +1134,7 @@ status:
 `)
 
 	info := &ResourceInfo{}
-	populateNodeInfo(node, info, []string{})
+	PopulateNodeInfo(node, info, []string{})
 	assert.Equal(t, &NodeInfo{
 		Name:       "minikube",
 		Capacity:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("6091320Ki"), corev1.ResourceCPU: resource.MustParse("6")},
@@ -1145,7 +1145,7 @@ status:
 
 func TestGetServiceInfo(t *testing.T) {
 	info := &ResourceInfo{}
-	populateNodeInfo(testService, info, []string{})
+	PopulateNodeInfo(testService, info, []string{})
 	assert.Empty(t, info.Info)
 	assert.Equal(t, &v1alpha1.ResourceNetworkingInfo{
 		TargetLabels: map[string]string{"app": "guestbook"},
@@ -1155,7 +1155,7 @@ func TestGetServiceInfo(t *testing.T) {
 
 func TestGetLinkAnnotatedServiceInfo(t *testing.T) {
 	info := &ResourceInfo{}
-	populateNodeInfo(testLinkAnnotatedService, info, []string{})
+	PopulateNodeInfo(testLinkAnnotatedService, info, []string{})
 	assert.Empty(t, info.Info)
 	assert.Equal(t, &v1alpha1.ResourceNetworkingInfo{
 		TargetLabels: map[string]string{"app": "guestbook"},
@@ -1175,7 +1175,7 @@ func TestMaliciousLinkAnnotatedServiceInfoFiltered(t *testing.T) {
 
 func TestGetIstioVirtualServiceInfo(t *testing.T) {
 	info := &ResourceInfo{}
-	populateNodeInfo(testIstioVirtualService, info, []string{})
+	PopulateNodeInfo(testIstioVirtualService, info, []string{})
 	assert.Empty(t, info.Info)
 	require.NotNil(t, info.NetworkingInfo)
 	require.NotNil(t, info.NetworkingInfo.TargetRefs)
@@ -1198,7 +1198,7 @@ func TestGetIstioVirtualServiceInfo(t *testing.T) {
 
 func TestGetIstioServiceEntryInfo(t *testing.T) {
 	info := &ResourceInfo{}
-	populateNodeInfo(testIstioServiceEntry, info, []string{})
+	PopulateNodeInfo(testIstioServiceEntry, info, []string{})
 	assert.Empty(t, info.Info)
 	require.NotNil(t, info.NetworkingInfo)
 	require.NotNil(t, info.NetworkingInfo.TargetRefs)
@@ -1220,7 +1220,7 @@ func TestGetIngressInfo(t *testing.T) {
 	}
 	for _, tc := range tests {
 		info := &ResourceInfo{}
-		populateNodeInfo(tc.Ingress, info, []string{})
+		PopulateNodeInfo(tc.Ingress, info, []string{})
 		assert.Empty(t, info.Info)
 		sort.Slice(info.NetworkingInfo.TargetRefs, func(i, j int) bool {
 			return info.NetworkingInfo.TargetRefs[i].Name < info.NetworkingInfo.TargetRefs[j].Name
@@ -1245,7 +1245,7 @@ func TestGetIngressInfo(t *testing.T) {
 
 func TestGetLinkAnnotatedIngressInfo(t *testing.T) {
 	info := &ResourceInfo{}
-	populateNodeInfo(testLinkAnnotatedIngress, info, []string{})
+	PopulateNodeInfo(testLinkAnnotatedIngress, info, []string{})
 	assert.Empty(t, info.Info)
 	sort.Slice(info.NetworkingInfo.TargetRefs, func(i, j int) bool {
 		return info.NetworkingInfo.TargetRefs[i].Name < info.NetworkingInfo.TargetRefs[j].Name
@@ -1269,7 +1269,7 @@ func TestGetLinkAnnotatedIngressInfo(t *testing.T) {
 
 func TestGetIgnoreDefaultLinksIngressInfo(t *testing.T) {
 	info := &ResourceInfo{}
-	populateNodeInfo(testIgnoreDefaultLinksIngress, info, []string{})
+	PopulateNodeInfo(testIgnoreDefaultLinksIngress, info, []string{})
 	assert.Empty(t, info.Info)
 	sort.Slice(info.NetworkingInfo.TargetRefs, func(i, j int) bool {
 		return info.NetworkingInfo.TargetRefs[i].Name < info.NetworkingInfo.TargetRefs[j].Name
@@ -1293,7 +1293,7 @@ func TestGetIgnoreDefaultLinksIngressInfo(t *testing.T) {
 
 func TestGetIngressInfoWildCardPath(t *testing.T) {
 	info := &ResourceInfo{}
-	populateNodeInfo(testIngressWildCardPath, info, []string{})
+	PopulateNodeInfo(testIngressWildCardPath, info, []string{})
 	assert.Empty(t, info.Info)
 	sort.Slice(info.NetworkingInfo.TargetRefs, func(i, j int) bool {
 		return info.NetworkingInfo.TargetRefs[i].Name < info.NetworkingInfo.TargetRefs[j].Name
@@ -1317,7 +1317,7 @@ func TestGetIngressInfoWildCardPath(t *testing.T) {
 
 func TestGetIngressInfoWithoutTls(t *testing.T) {
 	info := &ResourceInfo{}
-	populateNodeInfo(testIngressWithoutTLS, info, []string{})
+	PopulateNodeInfo(testIngressWithoutTLS, info, []string{})
 	assert.Empty(t, info.Info)
 	sort.Slice(info.NetworkingInfo.TargetRefs, func(i, j int) bool {
 		return info.NetworkingInfo.TargetRefs[i].Name < info.NetworkingInfo.TargetRefs[j].Name
@@ -1362,7 +1362,7 @@ func TestGetIngressInfoWithHost(t *testing.T) {
       - ip: 107.178.210.11`)
 
 	info := &ResourceInfo{}
-	populateNodeInfo(ingress, info, []string{})
+	PopulateNodeInfo(ingress, info, []string{})
 
 	assert.Equal(t, &v1alpha1.ResourceNetworkingInfo{
 		Ingress: []corev1.LoadBalancerIngress{{IP: "107.178.210.11"}},
@@ -1396,7 +1396,7 @@ func TestGetIngressInfoNoHost(t *testing.T) {
       `)
 
 	info := &ResourceInfo{}
-	populateNodeInfo(ingress, info, []string{})
+	PopulateNodeInfo(ingress, info, []string{})
 
 	assert.Equal(t, &v1alpha1.ResourceNetworkingInfo{
 		TargetRefs: []v1alpha1.ResourceRef{{
@@ -1432,7 +1432,7 @@ func TestExternalUrlWithSubPath(t *testing.T) {
       - ip: 107.178.210.11`)
 
 	info := &ResourceInfo{}
-	populateNodeInfo(ingress, info, []string{})
+	PopulateNodeInfo(ingress, info, []string{})
 
 	expectedExternalUrls := []string{"https://107.178.210.11/my/sub/path/"}
 	assert.Equal(t, expectedExternalUrls, info.NetworkingInfo.ExternalURLs)
@@ -1469,7 +1469,7 @@ func TestExternalUrlWithMultipleSubPaths(t *testing.T) {
       - ip: 107.178.210.11`)
 
 	info := &ResourceInfo{}
-	populateNodeInfo(ingress, info, []string{})
+	PopulateNodeInfo(ingress, info, []string{})
 
 	expectedExternalUrls := []string{"https://helm-guestbook.example.com/my/sub/path/", "https://helm-guestbook.example.com/my/sub/path/2", "https://helm-guestbook.example.com"}
 	actualURLs := info.NetworkingInfo.ExternalURLs
@@ -1500,7 +1500,7 @@ func TestExternalUrlWithNoSubPath(t *testing.T) {
       - ip: 107.178.210.11`)
 
 	info := &ResourceInfo{}
-	populateNodeInfo(ingress, info, []string{})
+	PopulateNodeInfo(ingress, info, []string{})
 
 	expectedExternalUrls := []string{"https://107.178.210.11"}
 	assert.Equal(t, expectedExternalUrls, info.NetworkingInfo.ExternalURLs)
@@ -1528,7 +1528,7 @@ func TestExternalUrlWithNetworkingApi(t *testing.T) {
       - ip: 107.178.210.11`)
 
 	info := &ResourceInfo{}
-	populateNodeInfo(ingress, info, []string{})
+	PopulateNodeInfo(ingress, info, []string{})
 
 	expectedExternalUrls := []string{"https://107.178.210.11"}
 	assert.Equal(t, expectedExternalUrls, info.NetworkingInfo.ExternalURLs)
@@ -1542,7 +1542,7 @@ func TestCustomLabel(t *testing.T) {
     name: cm`)
 
 	info := &ResourceInfo{}
-	populateNodeInfo(configmap, info, []string{"my-label"})
+	PopulateNodeInfo(configmap, info, []string{"my-label"})
 
 	assert.Empty(t, info.Info)
 
@@ -1555,7 +1555,7 @@ func TestCustomLabel(t *testing.T) {
       my-label: value`)
 
 	info = &ResourceInfo{}
-	populateNodeInfo(configmap, info, []string{"my-label", "other-label"})
+	PopulateNodeInfo(configmap, info, []string{"my-label", "other-label"})
 
 	assert.Len(t, info.Info, 1)
 	assert.Equal(t, "my-label", info.Info[0].Name)
@@ -1571,7 +1571,7 @@ func TestCustomLabel(t *testing.T) {
       other-label: value2`)
 
 	info = &ResourceInfo{}
-	populateNodeInfo(configmap, info, []string{"my-label", "other-label"})
+	PopulateNodeInfo(configmap, info, []string{"my-label", "other-label"})
 
 	assert.Len(t, info.Info, 2)
 	assert.Equal(t, "my-label", info.Info[0].Name)
