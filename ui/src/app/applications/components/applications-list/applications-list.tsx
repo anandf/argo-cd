@@ -70,15 +70,22 @@ const APPSET_FIELDS = [
 const APPSET_LIST_FIELDS = ['metadata.resourceVersion', ...APPSET_FIELDS.map(field => `items.${field}`)];
 const APPSET_WATCH_FIELDS = ['result.type', ...APPSET_FIELDS.map(field => `result.applicationSet.${field}`)];
 
-function loadApplications(projects: string[], appNamespace: string, objectListKind: string): Observable<models.AbstractApplication[]> {
+interface ApplicationsData {
+    applications: models.AbstractApplication[];
+    totalCount: number;
+}
+
+function loadApplications(projects: string[], appNamespace: string, objectListKind: string, limit?: number, offset?: number): Observable<ApplicationsData> {
     const isApplication = objectListKind === 'application';
     const listFields = isApplication ? APP_LIST_FIELDS : APPSET_LIST_FIELDS;
     const watchFields = isApplication ? APP_WATCH_FIELDS : APPSET_WATCH_FIELDS;
-    return from(services.applications.list(projects, objectListKind, {appNamespace, fields: listFields})).pipe(
+    return from(services.applications.list(projects, objectListKind, {appNamespace, fields: listFields, limit, offset})).pipe(
         mergeMap(applicationsList => {
             const applications = applicationsList.items;
+            const remaining = (applicationsList.metadata as any)?.remainingItemCount;
+            const totalCount = remaining != null ? applications.length + parseInt(remaining, 10) : applications.length;
             return merge(
-                from([applications]),
+                from([{applications, totalCount}]),
                 services.applications
                     .watch(objectListKind, {projects, resourceVersion: applicationsList.metadata.resourceVersion}, {fields: watchFields})
                     .pipe(repeat())
@@ -104,11 +111,11 @@ function loadApplications(projects: string[], appNamespace: string, objectListKi
                                         break;
                                 }
                             });
-                            return {applications, updated: appChanges.length > 0};
+                            return {applications, totalCount, updated: appChanges.length > 0};
                         })
                     )
                     .pipe(filter(item => item.updated))
-                    .pipe(map(item => item.applications))
+                    .pipe(map(item => ({applications: item.applications, totalCount: item.totalCount})))
             );
         })
     );
@@ -551,7 +558,8 @@ export const ApplicationsList = (props: RouteComponentProps<any> & {objectListKi
                                                 <MockupList height={100} marginTop={30} />
                                             </div>
                                         )}>
-                                        {(applications: models.AbstractApplication[]) => {
+                                        {(data: ApplicationsData) => {
+                                            const applications = data.applications;
                                             const healthBarPrefs = pref.statusBarView || ({} as HealthStatusBarPreferences);
                                             const handleCreatePanelClose = async () => {
                                                 const outsideDiv = document.querySelector('.sliding-panel__outside');

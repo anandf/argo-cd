@@ -522,3 +522,26 @@ func TestLoadPolicyLine(t *testing.T) {
 		require.Error(t, loadPolicyLine(policy, model))
 	})
 }
+
+func TestPolicyVersionIncrementsOnPolicyChange(t *testing.T) {
+	kubeclientset := fake.NewSimpleClientset()
+	enf := NewEnforcer(kubeclientset, fakeNamespace, fakeConfigMapName, nil)
+	enf.SetBuiltinPolicy(assets.BuiltinPolicyCSV)
+
+	v0 := enf.PolicyVersion()
+
+	// User policy change should increment version.
+	require.NoError(t, enf.SetUserPolicy("p, role:test, applications, get, */*, allow"))
+	v1 := enf.PolicyVersion()
+	assert.Greater(t, v1, v0, "PolicyVersion should increment after SetUserPolicy")
+
+	// Built-in policy change should also increment.
+	require.NoError(t, enf.SetBuiltinPolicy("p, role:admin, *, *, */*, allow"))
+	v2 := enf.PolicyVersion()
+	assert.Greater(t, v2, v1, "PolicyVersion should increment after SetBuiltinPolicy")
+
+	// Same policy again should still increment (invalidateCache is always called).
+	require.NoError(t, enf.SetUserPolicy("p, role:test, applications, get, */*, allow"))
+	v3 := enf.PolicyVersion()
+	assert.Greater(t, v3, v2, "PolicyVersion should increment on every SetUserPolicy call")
+}

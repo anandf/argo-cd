@@ -16,6 +16,7 @@ export interface PaginateProps<T> {
     onPageChange: (page: number) => any;
     children: (data: T[]) => React.ReactNode;
     data: T[];
+    totalCount?: number;
     emptyState?: () => React.ReactNode;
     preferencesKey?: string;
     header?: React.ReactNode;
@@ -23,14 +24,16 @@ export interface PaginateProps<T> {
     sortOptions?: SortOption<T>[];
 }
 
-export function Paginate<T>({page, onPageChange, children, data, emptyState, preferencesKey, header, showHeader, sortOptions}: PaginateProps<T>) {
+export function Paginate<T>({page, onPageChange, children, data, totalCount, emptyState, preferencesKey, header, showHeader, sortOptions}: PaginateProps<T>) {
     return (
         <DataLoader load={() => services.viewPreferences.getPreferences()}>
             {pref => {
                 preferencesKey = preferencesKey || 'default';
                 const pageSize = pref.pageSizes[preferencesKey] || 10;
                 const sortOption = sortOptions ? (pref.sortOptions && pref.sortOptions[preferencesKey]) || sortOptions[0].title : '';
-                const pageCount = pageSize === -1 ? 1 : Math.ceil(data.length / pageSize);
+                const isServerSide = totalCount != null && totalCount > data.length;
+                const effectiveTotal = isServerSide ? totalCount : data.length;
+                const pageCount = pageSize === -1 ? 1 : Math.ceil(effectiveTotal / pageSize);
                 if (pageCount <= page) {
                     page = pageCount - 1;
                 }

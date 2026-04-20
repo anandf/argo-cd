@@ -266,3 +266,41 @@ func TestCliPluginStdinHandling(t *testing.T) {
 		})
 	}
 }
+
+// TestCliAppListPagination verifies that `argocd app list` supports --limit and --stats flags.
+func TestCliAppListPagination(t *testing.T) {
+	ctx := Given(t)
+	ctx.Path("guestbook").
+		When().
+		CreateApp().
+		Sync().
+		Then().
+		Expect(OperationPhaseIs(OperationSucceeded)).
+		Expect(HealthIs(health.HealthStatusHealthy)).
+		And(func(a *Application) {
+			// Test --limit flag: should return the app (limit >= 1).
+			output, err := RunCli("app", "list", "--limit", "10")
+			require.NoError(t, err)
+			assert.Contains(t, NormalizeOutput(output), a.GetName())
+
+			// Test --limit 0 (no limit, same as default).
+			output, err = RunCli("app", "list", "--limit", "0")
+			require.NoError(t, err)
+			assert.Contains(t, NormalizeOutput(output), a.GetName())
+
+			// Test --stats flag: should show summary statistics.
+			output, err = RunCli("app", "list", "--stats")
+			require.NoError(t, err)
+			assert.Contains(t, output, "Total:")
+			assert.Contains(t, output, "Health:")
+			assert.Contains(t, output, "Sync:")
+			assert.Contains(t, output, "Healthy")
+			assert.Contains(t, output, "Synced")
+
+			// Test --limit with --stats: paginated response with stats.
+			output, err = RunCli("app", "list", "--limit", "10", "--stats")
+			require.NoError(t, err)
+			assert.Contains(t, NormalizeOutput(output), a.GetName())
+			assert.Contains(t, output, "Total:")
+		})
+}

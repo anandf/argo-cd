@@ -288,39 +288,123 @@ func (s *Server) List(ctx context.Context, q *application.ApplicationQuery) (*v1
 	if err != nil {
 		return nil, fmt.Errorf("error parsing the selector: %w", err)
 	}
+
+	resourceVersion := s.appInformer.LastSyncResourceVersion()
+	projects := getProjectsFromApplicationQuery(*q)
+
+	// Try the RBAC-filtered name cache.  The cache key includes the
+	// informer's resourceVersion so any app change naturally invalidates it,
+	// and the RBAC policy version so that policy changes (in argocd-rbac-cm)
+	// immediately invalidate the cache.
+	username := session.Username(ctx)
+	policyVersion := s.enf.PolicyVersion()
+	cachedNames, cacheErr := s.cache.GetAllowedAppNames(
+		username, resourceVersion, policyVersion, q.GetAppNamespace(), q.GetSelector(), projects)
+
+	var newItems []v1alpha1.Application
+
+	if cacheErr == nil && q.Name == nil && q.GetRepo() == "" {
+		// Cache hit – fetch only the named apps from the informer, skipping
+		// the full RBAC evaluation loop.
+		newItems = s.fetchAppsByNames(cachedNames)
+	} else {
+		// Cache miss or filters that require full evaluation – run the
+		// original RBAC loop.
+		newItems = s.listAppsWithRBACFilter(ctx, q, selector, projects)
+
+		// Cache the sorted list of allowed names for subsequent requests.
+		// Only cache when the result is from a "full" list (no name/repo
+		// filter) so the cached names represent the complete allowed set.
+		if q.Name == nil && q.GetRepo() == "" {
+			names := make([]string, len(newItems))
+			for i := range newItems {
+				names[i] = newItems[i].QualifiedName()
+			}
+			_ = s.cache.SetAllowedAppNames(
+				username, resourceVersion, policyVersion, q.GetAppNamespace(), q.GetSelector(), projects, names)
+		}
+	}
+
+	// Apply pagination if limit is specified.
+	totalCount := int64(len(newItems))
+	var continueToken string
+
+	if q.GetLimit() > 0 {
+		limit := int(q.GetLimit())
+
+		// Determine the starting offset from either a continue token or
+		// an explicit offset.  Continue tokens take precedence.
+		startIdx := 0
+		if q.GetContinue() != "" {
+			// The continue token is the qualified name of the first item
+			// on the next page.  Binary search for it in the sorted list.
+			startIdx = sort.Search(len(newItems), func(i int) bool {
+				return newItems[i].QualifiedName() >= q.GetContinue()
+			})
+		} else if q.GetOffset() > 0 {
+			startIdx = int(q.GetOffset())
+		}
+
+		if startIdx >= len(newItems) {
+			newItems = nil
+		} else {
+			end := startIdx + limit
+			if end > len(newItems) {
+				end = len(newItems)
+			}
+			// Set the continue token to the next item's name if there
+			// are more results.
+			if end < len(newItems) {
+				continueToken = newItems[end].QualifiedName()
+			}
+			newItems = newItems[startIdx:end]
+		}
+	}
+
+	listMeta := metav1.ListMeta{
+		ResourceVersion: resourceVersion,
+	}
+	if q.GetLimit() > 0 {
+		remainingCount := totalCount - int64(len(newItems))
+		listMeta.Continue = continueToken
+		listMeta.RemainingItemCount = &remainingCount
+	}
+	appList := v1alpha1.ApplicationList{
+		ListMeta: listMeta,
+		Items:    newItems,
+	}
+	return &appList, nil
+}
+
+// listAppsWithRBACFilter lists all applications, applies name/project/repo
+// filters and RBAC checks, and returns a sorted slice of allowed apps.
+func (s *Server) listAppsWithRBACFilter(ctx context.Context, q *application.ApplicationQuery, selector labels.Selector, projects []string) []v1alpha1.Application {
 	var apps []*v1alpha1.Application
+	var err error
 	if q.GetAppNamespace() == "" {
 		apps, err = s.appLister.List(selector)
 	} else {
 		apps, err = s.appLister.Applications(q.GetAppNamespace()).List(selector)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("error listing apps with selectors: %w", err)
+		log.Errorf("Error listing apps with selectors: %v", err)
+		return nil
 	}
 
 	filteredApps := apps
-	// Filter applications by name
 	if q.Name != nil {
 		filteredApps = argo.FilterByNameP(filteredApps, *q.Name)
 	}
-
-	// Filter applications by projects
-	filteredApps = argo.FilterByProjectsP(filteredApps, getProjectsFromApplicationQuery(*q))
-
-	// Filter applications by source repo URL
+	filteredApps = argo.FilterByProjectsP(filteredApps, projects)
 	filteredApps = argo.FilterByRepoP(filteredApps, q.GetRepo())
 
 	newItems := make([]v1alpha1.Application, 0)
 	for _, a := range filteredApps {
-		// Skip any application that is neither in the control plane's namespace
-		// nor in the list of enabled namespaces.
 		if !s.isNamespaceEnabled(a.Namespace) {
 			continue
 		}
 		if s.enf.Enforce(ctx.Value("claims"), rbac.ResourceApplications, rbac.ActionGet, a.RBACName(s.ns)) {
-			// Create a deep copy to ensure all metadata fields including annotations are preserved
 			appCopy := a.DeepCopy()
-			// Explicitly copy annotations in case DeepCopy does not preserve them
 			if a.Annotations != nil {
 				appCopy.Annotations = a.Annotations
 			}
@@ -328,18 +412,43 @@ func (s *Server) List(ctx context.Context, q *application.ApplicationQuery) (*v1
 		}
 	}
 
-	// Sort found applications by name
 	sort.Slice(newItems, func(i, j int) bool {
 		return newItems[i].Name < newItems[j].Name
 	})
 
-	appList := v1alpha1.ApplicationList{
-		ListMeta: metav1.ListMeta{
-			ResourceVersion: s.appInformer.LastSyncResourceVersion(),
-		},
-		Items: newItems,
+	return newItems
+}
+
+// fetchAppsByNames fetches applications by their qualified names from the
+// informer cache and returns deep copies sorted by name.  Names that no
+// longer exist in the informer are silently skipped.
+func (s *Server) fetchAppsByNames(names []string) []v1alpha1.Application {
+	items := make([]v1alpha1.Application, 0, len(names))
+	for _, qname := range names {
+		// QualifiedName format is "namespace/name" or just "name" for the
+		// control-plane namespace.
+		ns, name := s.parseQualifiedName(qname)
+		app, err := s.appLister.Applications(ns).Get(name)
+		if err != nil {
+			continue // app was deleted since the cache was populated
+		}
+		appCopy := app.DeepCopy()
+		if app.Annotations != nil {
+			appCopy.Annotations = app.Annotations
+		}
+		items = append(items, *appCopy)
 	}
-	return &appList, nil
+	return items
+}
+
+// parseQualifiedName splits a qualified name ("namespace/name") into its
+// parts.  If there is no slash, the control-plane namespace is assumed.
+func (s *Server) parseQualifiedName(qname string) (string, string) {
+	parts := strings.SplitN(qname, "/", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return s.ns, parts[0]
 }
 
 // Create creates an application
@@ -1284,7 +1393,14 @@ func (s *Server) Watch(q *application.ApplicationQuery, ws application.Applicati
 	// This is required since single app watch API is used for during operations like app syncing and it is
 	// critical to never miss events.
 	if q.GetResourceVersion() == "" || q.GetName() != "" {
-		apps, err := s.appLister.List(selector)
+		var apps []*v1alpha1.Application
+		// Scope the initial ADDED events to the requested namespace, mirroring
+		// the List handler behaviour (lines 284-288).
+		if q.GetAppNamespace() != "" && appNs != s.ns {
+			apps, err = s.appLister.Applications(appNs).List(selector)
+		} else {
+			apps, err = s.appLister.List(selector)
+		}
 		if err != nil {
 			return fmt.Errorf("error listing apps with selector: %w", err)
 		}

@@ -1842,6 +1842,8 @@ func printApplicationTable(apps []argoappv1.Application, output *string) {
 }
 
 // NewApplicationListCommand returns a new instance of an `argocd app list` command
+const defaultListPageSize int64 = 500
+
 func NewApplicationListCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 	var (
 		output       string
@@ -1851,6 +1853,9 @@ func NewApplicationListCommand(clientOpts *argocdclient.ClientOptions) *cobra.Co
 		appNamespace string
 		cluster      string
 		path         string
+		limit        int64
+		offset       int64
+		showStats    bool
 	)
 	command := &cobra.Command{
 		Use:   "list",
@@ -1863,19 +1868,37 @@ func NewApplicationListCommand(clientOpts *argocdclient.ClientOptions) *cobra.Co
   argocd app list -l app.kubernetes.io/instance!=my-app
   argocd app list -l app.kubernetes.io/instance
   argocd app list -l '!app.kubernetes.io/instance'
-  argocd app list -l 'app.kubernetes.io/instance notin (my-app,other-app)'`,
+  argocd app list -l 'app.kubernetes.io/instance notin (my-app,other-app)'
+
+  # List first 50 apps (server-side pagination)
+  argocd app list --limit 50
+
+  # List apps 51-100 (server-side pagination with offset)
+  argocd app list --limit 50 --offset 50`,
 		Run: func(c *cobra.Command, _ []string) {
 			ctx := c.Context()
 
 			conn, appIf := headless.NewClientOrDie(clientOpts, c).NewApplicationClientOrDie()
 			defer utilio.Close(conn)
-			apps, err := appIf.List(ctx, &application.ApplicationQuery{
-				Selector:     new(selector),
-				AppNamespace: &appNamespace,
-			})
 
-			errors.CheckError(err)
-			appList := apps.Items
+			var appList []argoappv1.Application
+			var totalCount int64 = -1
+
+			if limit > 0 {
+				apps, err := appIf.List(ctx, &application.ApplicationQuery{
+					Selector:     &selector,
+					AppNamespace: &appNamespace,
+					Limit:        &limit,
+					Offset:       &offset,
+				})
+				errors.CheckError(err)
+				appList = apps.Items
+				if apps.RemainingItemCount != nil {
+					totalCount = int64(len(appList)) + *apps.RemainingItemCount
+				}
+			} else {
+				appList = listAllApplications(ctx, appIf, selector, appNamespace)
+			}
 
 			if len(projects) != 0 {
 				appList = argo.FilterByProjects(appList, projects)
@@ -1901,6 +1924,10 @@ func NewApplicationListCommand(clientOpts *argocdclient.ClientOptions) *cobra.Co
 			default:
 				errors.CheckError(fmt.Errorf("unknown output format: %s", output))
 			}
+
+			if showStats {
+				printApplicationStats(appList, totalCount)
+			}
 		},
 	}
 	command.Flags().StringVarP(&output, "output", "o", "wide", "Output format. One of: wide|name|json|yaml")
@@ -1910,7 +1937,66 @@ func NewApplicationListCommand(clientOpts *argocdclient.ClientOptions) *cobra.Co
 	command.Flags().StringVarP(&appNamespace, "app-namespace", "N", "", "Only list applications in namespace")
 	command.Flags().StringVarP(&cluster, "cluster", "c", "", "List apps by cluster name or url")
 	command.Flags().StringVarP(&path, "path", "P", "", "List apps by path")
+	command.Flags().Int64Var(&limit, "limit", 0, "Maximum number of applications to return (0 means no limit)")
+	command.Flags().Int64Var(&offset, "offset", 0, "Offset for pagination (use with --limit)")
+	command.Flags().BoolVar(&showStats, "stats", false, "Show application health and sync statistics")
 	return command
+}
+
+func listAllApplications(ctx context.Context, appIf application.ApplicationServiceClient, selector, appNamespace string) []argoappv1.Application {
+	var allApps []argoappv1.Application
+	var continueToken string
+	pageSize := defaultListPageSize
+
+	for {
+		query := &application.ApplicationQuery{
+			Selector:     &selector,
+			AppNamespace: &appNamespace,
+			Limit:        &pageSize,
+		}
+		if continueToken != "" {
+			query.Continue = &continueToken
+		}
+
+		apps, err := appIf.List(ctx, query)
+		errors.CheckError(err)
+
+		if int64(len(apps.Items)) > pageSize {
+			return apps.Items
+		}
+		allApps = append(allApps, apps.Items...)
+		if apps.Continue == "" {
+			break
+		}
+		continueToken = apps.Continue
+	}
+	return allApps
+}
+
+func printApplicationStats(apps []argoappv1.Application, totalCount int64) {
+	healthCounts := make(map[health.HealthStatusCode]int)
+	syncCounts := make(map[argoappv1.SyncStatusCode]int)
+	for i := range apps {
+		healthCounts[apps[i].Status.Health.Status]++
+		syncCounts[apps[i].Status.Sync.Status]++
+	}
+
+	fmt.Printf("\n--- Application Statistics ---\n")
+	if totalCount >= 0 {
+		fmt.Printf("Total: %d application(s)\n", totalCount)
+	} else {
+		fmt.Printf("Total: %d application(s)\n", len(apps))
+	}
+
+	fmt.Printf("\nHealth Status:\n")
+	for status, count := range healthCounts {
+		fmt.Printf("  %s: %d\n", status, count)
+	}
+
+	fmt.Printf("\nSync Status:\n")
+	for status, count := range syncCounts {
+		fmt.Printf("  %s: %d\n", status, count)
+	}
 }
 
 func formatSyncPolicy(app argoappv1.Application) string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -87,4 +88,57 @@ func (c *Cache) SetClusterInfo(server string, res *appv1.ClusterInfo) error {
 
 func (c *Cache) GetCache() *cacheutil.Cache {
 	return c.cache.Cache
+}
+
+// AppListSummary holds aggregate counts for the application list.
+type AppListSummary struct {
+	TotalCount   int64            `json:"totalCount"`
+	HealthCounts map[string]int64 `json:"healthCounts"`
+	SyncCounts   map[string]int64 `json:"syncCounts"`
+}
+
+const (
+	appListCacheExpiration    = 15 * time.Second
+	appSummaryCacheExpiration = 10 * time.Second
+)
+
+// allowedAppNamesKey builds the cache key for the RBAC-filtered list of
+// application names visible to a specific user.  The resourceVersion is
+// included so that any informer update naturally invalidates the cache.
+// The policyVersion is included so that RBAC policy changes (in argocd-rbac-cm)
+// immediately invalidate the cache, closing the window where stale permissions
+// could be served.
+func allowedAppNamesKey(userHash, resourceVersion string, policyVersion uint64, namespace, selector string, projects []string) string {
+	return fmt.Sprintf("app-list|%s|%s|%d|%s|%s|%s", userHash, resourceVersion, policyVersion, namespace, selector, strings.Join(projects, ","))
+}
+
+// appListSummaryKey builds the cache key for application list summary counts.
+func appListSummaryKey(userHash, resourceVersion string, policyVersion uint64, namespace, selector string, projects []string) string {
+	return fmt.Sprintf("app-summary|%s|%s|%d|%s|%s|%s", userHash, resourceVersion, policyVersion, namespace, selector, strings.Join(projects, ","))
+}
+
+// GetAllowedAppNames returns the cached sorted list of application qualified
+// names that a given user is allowed to see.
+func (c *Cache) GetAllowedAppNames(userHash, resourceVersion string, policyVersion uint64, namespace, selector string, projects []string) ([]string, error) {
+	var names []string
+	err := c.cache.GetItem(allowedAppNamesKey(userHash, resourceVersion, policyVersion, namespace, selector, projects), &names)
+	return names, err
+}
+
+// SetAllowedAppNames caches the sorted list of application qualified names
+// that a given user is allowed to see.
+func (c *Cache) SetAllowedAppNames(userHash, resourceVersion string, policyVersion uint64, namespace, selector string, projects []string, names []string) error {
+	return c.cache.SetItem(allowedAppNamesKey(userHash, resourceVersion, policyVersion, namespace, selector, projects), names, appListCacheExpiration, false)
+}
+
+// GetAppListSummary returns the cached application list summary counts for a user.
+func (c *Cache) GetAppListSummary(userHash, resourceVersion string, policyVersion uint64, namespace, selector string, projects []string) (AppListSummary, error) {
+	var summary AppListSummary
+	err := c.cache.GetItem(appListSummaryKey(userHash, resourceVersion, policyVersion, namespace, selector, projects), &summary)
+	return summary, err
+}
+
+// SetAppListSummary caches the application list summary counts for a user.
+func (c *Cache) SetAppListSummary(userHash, resourceVersion string, policyVersion uint64, namespace, selector string, projects []string, summary AppListSummary) error {
+	return c.cache.SetItem(appListSummaryKey(userHash, resourceVersion, policyVersion, namespace, selector, projects), summary, appSummaryCacheExpiration, false)
 }

@@ -35,6 +35,12 @@ message ApplicationQuery {
 	optional string appNamespace = 7;
 	// the project names to restrict returned list applications (legacy name for backwards-compatibility)
 	repeated string project = 8;
+	// maximum number of applications to return in a single response. 0 means no limit (default).
+	optional int64 limit = 9;
+	// continue token from a previous paginated response for stable pagination.
+	optional string continue = 10;
+	// offset for simple numeric pagination (use continue for stable cursor-based pagination).
+	optional int64 offset = 11;
 }
 
 message NodeQuery {

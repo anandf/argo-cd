@@ -2103,7 +2103,9 @@ func (f fakeSettingsServiceClient) GetPlugins(_ context.Context, _ *settingspkg.
 	return nil, nil
 }
 
-type fakeAppServiceClient struct{}
+type fakeAppServiceClient struct {
+	listHandler func(ctx context.Context, q *applicationpkg.ApplicationQuery) (*v1alpha1.ApplicationList, error)
+}
 
 func (c *fakeAppServiceClient) Get(_ context.Context, _ *applicationpkg.ApplicationQuery, _ ...grpc.CallOption) (*v1alpha1.Application, error) {
 	time := metav1.Date(2020, time.November, 10, 23, 0, 0, 0, time.UTC)
@@ -2172,7 +2174,10 @@ func (c *fakeAppServiceClient) Get(_ context.Context, _ *applicationpkg.Applicat
 	}, nil
 }
 
-func (c *fakeAppServiceClient) List(_ context.Context, _ *applicationpkg.ApplicationQuery, _ ...grpc.CallOption) (*v1alpha1.ApplicationList, error) {
+func (c *fakeAppServiceClient) List(ctx context.Context, q *applicationpkg.ApplicationQuery, _ ...grpc.CallOption) (*v1alpha1.ApplicationList, error) {
+	if c.listHandler != nil {
+		return c.listHandler(ctx, q)
+	}
 	return nil, nil
 }
 
@@ -2440,4 +2445,125 @@ func (c *fakeAcdClient) WatchApplicationSetWithRetry(_ context.Context, _ string
 		appSetEventsCh <- addedEvent
 	}()
 	return appSetEventsCh
+}
+
+func makeApp(name string, healthStatus health.HealthStatusCode, syncStatus v1alpha1.SyncStatusCode) v1alpha1.Application {
+	return v1alpha1.Application{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "argocd"},
+		Status: v1alpha1.ApplicationStatus{
+			Health: v1alpha1.AppHealthStatus{Status: healthStatus},
+			Sync:   v1alpha1.SyncStatus{Status: syncStatus},
+		},
+	}
+}
+
+func TestListAllApplications_Batched(t *testing.T) {
+	totalApps := 5
+	apps := make([]v1alpha1.Application, totalApps)
+	for i := range totalApps {
+		apps[i] = makeApp(fmt.Sprintf("app-%03d", i), health.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced)
+	}
+
+	// Simulate a server that enforces a max page size of 2, ignoring the
+	// client's requested limit.  This lets us verify that
+	// listAllApplications follows continue tokens across multiple pages.
+	serverPageSize := 2
+	callCount := 0
+	client := &fakeAppServiceClient{
+		listHandler: func(_ context.Context, q *applicationpkg.ApplicationQuery) (*v1alpha1.ApplicationList, error) {
+			callCount++
+			start := 0
+			if q.GetContinue() != "" {
+				for i, a := range apps {
+					if a.Name >= q.GetContinue() {
+						start = i
+						break
+					}
+				}
+			}
+			end := start + serverPageSize
+			continueToken := ""
+			if end < len(apps) {
+				continueToken = apps[end].Name
+			} else {
+				end = len(apps)
+			}
+			remaining := int64(len(apps) - end)
+			return &v1alpha1.ApplicationList{
+				ListMeta: metav1.ListMeta{
+					Continue:           continueToken,
+					RemainingItemCount: &remaining,
+				},
+				Items: apps[start:end],
+			}, nil
+		},
+	}
+
+	result := listAllApplications(context.Background(), client, "", "")
+	assert.Len(t, result, totalApps)
+	assert.Greater(t, callCount, 1, "should have made multiple API calls for batched pagination")
+}
+
+func TestListAllApplications_OlderServer(t *testing.T) {
+	allApps := make([]v1alpha1.Application, 3)
+	for i := range 3 {
+		allApps[i] = makeApp(fmt.Sprintf("app-%d", i), health.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced)
+	}
+
+	client := &fakeAppServiceClient{
+		listHandler: func(_ context.Context, _ *applicationpkg.ApplicationQuery) (*v1alpha1.ApplicationList, error) {
+			return &v1alpha1.ApplicationList{Items: allApps}, nil
+		},
+	}
+
+	result := listAllApplications(context.Background(), client, "", "")
+	assert.Len(t, result, 3)
+}
+
+func TestPrintApplicationStats(t *testing.T) {
+	apps := []v1alpha1.Application{
+		makeApp("app-1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced),
+		makeApp("app-2", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync),
+		makeApp("app-3", health.HealthStatusDegraded, v1alpha1.SyncStatusCodeSynced),
+	}
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	printApplicationStats(apps, 100)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	output := buf.String()
+
+	assert.Contains(t, output, "Total: 100 application(s)")
+	assert.Contains(t, output, "Healthy: 2")
+	assert.Contains(t, output, "Degraded: 1")
+	assert.Contains(t, output, "Synced: 2")
+	assert.Contains(t, output, "OutOfSync: 1")
+}
+
+func TestPrintApplicationStats_NoTotalCount(t *testing.T) {
+	apps := []v1alpha1.Application{
+		makeApp("app-1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced),
+	}
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	printApplicationStats(apps, -1)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	output := buf.String()
+
+	assert.Contains(t, output, "Total: 1 application(s)")
 }

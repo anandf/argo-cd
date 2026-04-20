@@ -1321,6 +1321,216 @@ func TestListApps(t *testing.T) {
 	assert.Equal(t, []string{"abc", "bcd", "def"}, names)
 }
 
+func TestListAppsPagination(t *testing.T) {
+	appServer := newTestAppServer(t, newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-a"
+	}), newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-b"
+	}), newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-c"
+	}), newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-d"
+	}), newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-e"
+	}))
+
+	t.Run("NoLimit", func(t *testing.T) {
+		res, err := appServer.List(t.Context(), &application.ApplicationQuery{})
+		require.NoError(t, err)
+		assert.Len(t, res.Items, 5)
+		assert.Empty(t, res.ListMeta.Continue)
+	})
+
+	t.Run("LimitFirstPage", func(t *testing.T) {
+		limit := int64(2)
+		res, err := appServer.List(t.Context(), &application.ApplicationQuery{Limit: &limit})
+		require.NoError(t, err)
+		assert.Len(t, res.Items, 2)
+		assert.Equal(t, "app-a", res.Items[0].Name)
+		assert.Equal(t, "app-b", res.Items[1].Name)
+		assert.NotEmpty(t, res.ListMeta.Continue)
+		require.NotNil(t, res.ListMeta.RemainingItemCount)
+		assert.Equal(t, int64(3), *res.ListMeta.RemainingItemCount)
+	})
+
+	t.Run("LimitWithContinue", func(t *testing.T) {
+		limit := int64(2)
+		// Get first page
+		res1, err := appServer.List(t.Context(), &application.ApplicationQuery{Limit: &limit})
+		require.NoError(t, err)
+		require.NotEmpty(t, res1.ListMeta.Continue)
+
+		// Get second page using continue token
+		continueToken := res1.ListMeta.Continue
+		res2, err := appServer.List(t.Context(), &application.ApplicationQuery{Limit: &limit, Continue: &continueToken})
+		require.NoError(t, err)
+		assert.Len(t, res2.Items, 2)
+		assert.Equal(t, "app-c", res2.Items[0].Name)
+		assert.Equal(t, "app-d", res2.Items[1].Name)
+		assert.NotEmpty(t, res2.ListMeta.Continue)
+
+		// Get third (last) page
+		continueToken2 := res2.ListMeta.Continue
+		res3, err := appServer.List(t.Context(), &application.ApplicationQuery{Limit: &limit, Continue: &continueToken2})
+		require.NoError(t, err)
+		assert.Len(t, res3.Items, 1)
+		assert.Equal(t, "app-e", res3.Items[0].Name)
+		assert.Empty(t, res3.ListMeta.Continue)
+	})
+
+	t.Run("LimitWithOffset", func(t *testing.T) {
+		limit := int64(2)
+		offset := int64(2)
+		res, err := appServer.List(t.Context(), &application.ApplicationQuery{Limit: &limit, Offset: &offset})
+		require.NoError(t, err)
+		assert.Len(t, res.Items, 2)
+		assert.Equal(t, "app-c", res.Items[0].Name)
+		assert.Equal(t, "app-d", res.Items[1].Name)
+	})
+
+	t.Run("OffsetBeyondEnd", func(t *testing.T) {
+		limit := int64(2)
+		offset := int64(100)
+		res, err := appServer.List(t.Context(), &application.ApplicationQuery{Limit: &limit, Offset: &offset})
+		require.NoError(t, err)
+		assert.Empty(t, res.Items)
+	})
+
+	t.Run("LimitLargerThanTotal", func(t *testing.T) {
+		limit := int64(100)
+		res, err := appServer.List(t.Context(), &application.ApplicationQuery{Limit: &limit})
+		require.NoError(t, err)
+		assert.Len(t, res.Items, 5)
+		assert.Empty(t, res.ListMeta.Continue)
+		require.NotNil(t, res.ListMeta.RemainingItemCount)
+		assert.Equal(t, int64(0), *res.ListMeta.RemainingItemCount)
+	})
+}
+
+func TestListAppsPaginationCompleteness(t *testing.T) {
+	// Verify that walking all pages via continue tokens returns exactly the same apps
+	// as a single unpaginated request -- no duplicates, no gaps.
+	appServer := newTestAppServer(t, newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-a"
+	}), newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-b"
+	}), newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-c"
+	}), newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-d"
+	}), newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-e"
+	}))
+
+	// Get all apps without pagination.
+	allRes, err := appServer.List(t.Context(), &application.ApplicationQuery{})
+	require.NoError(t, err)
+	var allNames []string
+	for _, app := range allRes.Items {
+		allNames = append(allNames, app.Name)
+	}
+
+	// Walk all pages with continue tokens.
+	limit := int64(2)
+	var paginatedNames []string
+	var continueToken string
+	for {
+		q := &application.ApplicationQuery{Limit: &limit}
+		if continueToken != "" {
+			q.Continue = &continueToken
+		}
+		res, listErr := appServer.List(t.Context(), q)
+		require.NoError(t, listErr)
+		for _, app := range res.Items {
+			paginatedNames = append(paginatedNames, app.Name)
+		}
+		if res.ListMeta.Continue == "" {
+			break
+		}
+		continueToken = res.ListMeta.Continue
+	}
+
+	// Paginated walk must produce the exact same list as unpaginated.
+	assert.Equal(t, allNames, paginatedNames, "paginated walk should return all apps without duplicates or gaps")
+}
+
+func TestWatchNamespaceFiltering(t *testing.T) {
+	t.Skip("Watch namespace filtering not yet implemented (Phase 1.1 of server-side pagination plan)")
+	// Create apps in two different namespaces and verify that the Watch endpoint
+	// only sends initial ADDED events for the requested namespace.
+	appServer := newTestAppServer(t, newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-default"
+		app.Namespace = "default"
+	}), newTestApp(func(app *v1alpha1.Application) {
+		app.Name = "app-other"
+		app.Namespace = "other-ns"
+	}))
+
+	ctx := context.WithValue(t.Context(), "claims", &jwt.MapClaims{"groups": []string{"admin"}})
+
+	// Test 1: Watch without namespace filter should send all apps as initial ADDED events.
+	allAppsWs := newTestWatchServer(ctx)
+	go func() {
+		// The Watch call blocks (waiting for broadcaster events), so run in goroutine.
+		// We only care about the initial ADDED events.
+		_ = appServer.Watch(&application.ApplicationQuery{}, allAppsWs)
+	}()
+	// Give it a moment for initial events to be sent.
+	time.Sleep(200 * time.Millisecond)
+
+	allNames := allAppsWs.getAppNames()
+	assert.Contains(t, allNames, "app-default")
+	assert.Contains(t, allNames, "app-other")
+
+	// Test 2: Watch with appNamespace="other-ns" should only send apps from that namespace.
+	nsFiltered := newTestWatchServer(ctx)
+	otherNs := "other-ns"
+	go func() {
+		_ = appServer.Watch(&application.ApplicationQuery{AppNamespace: &otherNs}, nsFiltered)
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	filteredNames := nsFiltered.getAppNames()
+	assert.Contains(t, filteredNames, "app-other")
+	assert.NotContains(t, filteredNames, "app-default")
+}
+
+// testWatchServer is a mock implementation of ApplicationService_WatchServer
+// that collects sent events for assertions. Uses a channel to avoid import
+// conflicts with the argoproj sync package.
+type testWatchServer struct {
+	ctx    context.Context
+	events chan *v1alpha1.ApplicationWatchEvent
+}
+
+func newTestWatchServer(ctx context.Context) *testWatchServer {
+	return &testWatchServer{ctx: ctx, events: make(chan *v1alpha1.ApplicationWatchEvent, 100)}
+}
+
+func (t *testWatchServer) Send(event *v1alpha1.ApplicationWatchEvent) error {
+	t.events <- event
+	return nil
+}
+
+func (t *testWatchServer) getAppNames() []string {
+	var names []string
+	for {
+		select {
+		case e := <-t.events:
+			names = append(names, e.Application.Name)
+		default:
+			return names
+		}
+	}
+}
+
+func (t *testWatchServer) SetHeader(metadata.MD) error  { return nil }
+func (t *testWatchServer) SendHeader(metadata.MD) error { return nil }
+func (t *testWatchServer) SetTrailer(metadata.MD)       {}
+func (t *testWatchServer) Context() context.Context      { return t.ctx }
+func (t *testWatchServer) SendMsg(_ any) error           { return nil }
+func (t *testWatchServer) RecvMsg(_ any) error           { return nil }
+
 func TestCoupleAppsListApps(t *testing.T) {
 	var objects []runtime.Object
 	ctx := t.Context()

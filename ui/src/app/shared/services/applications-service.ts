@@ -12,16 +12,24 @@ interface QueryOptions {
     exclude?: boolean;
     selector?: string;
     appNamespace?: string;
+    limit?: number;
+    offset?: number;
 }
 
-function optionsToSearch(options?: QueryOptions): {fields?: string; selector: string; appNamespace: string} {
+function optionsToSearch(options?: QueryOptions): {fields?: string; selector: string; appNamespace: string; limit?: string; offset?: string} {
     if (options) {
-        const result: {fields?: string; selector: string; appNamespace: string} = {
+        const result: {fields?: string; selector: string; appNamespace: string; limit?: string; offset?: string} = {
             selector: options.selector || '',
             appNamespace: options.appNamespace || ''
         };
         if (options.fields) {
             result.fields = (options.exclude ? '-' : '') + options.fields.join(',');
+        }
+        if (options.limit != null && options.limit > 0) {
+            result.limit = options.limit.toString();
+        }
+        if (options.offset != null && options.offset > 0) {
+            result.offset = options.offset.toString();
         }
         return result;
     }

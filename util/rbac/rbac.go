@@ -137,6 +137,7 @@ type Enforcer struct {
 	model              model.Model
 	defaultRole        string
 	matchMode          string
+	policyVersion      uint64
 }
 
 // cachedEnforcer holds the Casbin enforcer instances and optional custom project policy
@@ -153,6 +154,17 @@ func (e *Enforcer) invalidateCache(actions ...func()) {
 		action()
 	}
 	e.enforcerCache.Flush()
+	e.policyVersion++
+}
+
+// PolicyVersion returns a monotonically increasing counter that is
+// incremented every time the RBAC policy is modified (built-in, user-defined,
+// or runtime policy changes).  Callers can include this value in cache keys
+// to ensure immediate invalidation when policies change.
+func (e *Enforcer) PolicyVersion() uint64 {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	return e.policyVersion
 }
 
 func (e *Enforcer) getCasbinEnforcer(project string, policy string) CasbinEnforcer {
