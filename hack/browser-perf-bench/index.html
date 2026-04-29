@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Argo CD Applications List — Browser Performance Benchmark</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: #0d1117; color: #c9d1d9; padding: 24px; }
+  h1 { font-size: 1.4rem; margin-bottom: 8px; color: #58a6ff; }
+  h2 { font-size: 1.1rem; margin: 16px 0 8px; color: #8b949e; }
+  .subtitle { color: #8b949e; font-size: 0.85rem; margin-bottom: 24px; }
+  .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .controls label { font-size: 0.85rem; color: #8b949e; }
+  .controls input, .controls select { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 10px; border-radius: 6px; font-size: 0.85rem; }
+  button { background: #238636; border: none; color: #fff; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+  button:hover { background: #2ea043; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.danger { background: #da3633; }
+  button.secondary { background: #30363d; }
+  #status { margin: 12px 0; font-size: 0.85rem; color: #f0883e; min-height: 20px; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 0.8rem; }
+  th, td { padding: 8px 12px; text-align: right; border-bottom: 1px solid #21262d; }
+  th { color: #8b949e; font-weight: 600; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  tr.warn td { color: #f0883e; }
+  tr.danger td { color: #f85149; font-weight: 700; }
+  tr.ok td { color: #3fb950; }
+  .chart-container { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin: 12px 0; }
+  canvas { width: 100% !important; height: 300px !important; }
+  .metric-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 12px 0; }
+  .metric-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+  .metric-card .label { font-size: 0.75rem; color: #8b949e; margin-bottom: 4px; }
+  .metric-card .value { font-size: 1.6rem; font-weight: 700; }
+  .metric-card .unit { font-size: 0.75rem; color: #8b949e; }
+  .metric-card.warn .value { color: #f0883e; }
+  .metric-card.danger .value { color: #f85149; }
+  .metric-card.ok .value { color: #3fb950; }
+  pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px; font-size: 0.75rem; overflow-x: auto; margin: 8px 0; max-height: 400px; overflow-y: auto; }
+  .progress-bar { width: 100%; height: 6px; background: #21262d; border-radius: 3px; margin: 8px 0; }
+  .progress-bar .fill { height: 100%; background: #238636; border-radius: 3px; transition: width 0.3s; }
+  .section { margin-bottom: 32px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>Argo CD Applications List — Browser Performance Benchmark</h1>
+<p class="subtitle">
+  Measures JSON deserialization cost, heap allocation, client-side filtering, and rendering overhead
+  for the <code>/api/v1/applications</code> response.
+  Create applications externally (e.g., <code>hack/generate-scale-test-apps.sh</code>), then use this page to capture and visualize metrics.
+</p>
+
+<div class="section">
+  <h2>Configuration</h2>
+  <div class="controls">
+    <label>API URL:
+      <input id="apiUrl" type="text" value="https://localhost:8080" placeholder="https://localhost:8080" size="40">
+    </label>
+    <label>Bearer token:
+      <input id="apiToken" type="password" placeholder="argocd auth token" size="30">
+    </label>
+  </div>
+  <div class="controls">
+    <label>Iterations:
+      <input id="iterations" type="number" value="3" min="1" max="10" style="width:50px">
+    </label>
+    <button id="btnRun" onclick="runBenchmark()">Run Benchmark</button>
+    <button id="btnExport" class="secondary" onclick="exportResults()" disabled>Export CSV</button>
+    <button id="btnCopy" class="secondary" onclick="copyMarkdown()" disabled>Copy Markdown</button>
+  </div>
+  <div class="progress-bar"><div class="fill" id="progress" style="width:0%"></div></div>
+  <div id="status"></div>
+</div>
+
+<div class="section" id="liveMetrics" style="display:none">
+  <h2>Metrics (Latest Run)</h2>
+  <div class="metric-cards" id="cards"></div>
+</div>
+
+<div class="section" id="resultsSection" style="display:none">
+  <h2>Results Summary</h2>
+  <table id="resultsTable">
+    <thead>
+      <tr>
+        <th>Run</th>
+        <th>Apps</th>
+        <th>JSON Size (MB)</th>
+        <th>JSON.parse (ms)</th>
+        <th>Filter+Sort (ms)</th>
+        <th>Total CPU (ms)</th>
+        <th>Heap Used (MB)</th>
+        <th>Heap Delta (MB)</th>
+        <th>Main Thread Blocked</th>
+      </tr>
+    </thead>
+    <tbody id="resultsBody"></tbody>
+  </table>
+</div>
+
+<div class="section" id="chartsSection" style="display:none">
+  <h2>Iteration Breakdown</h2>
+  <div class="two-col">
+    <div class="chart-container">
+      <canvas id="chartParseTime"></canvas>
+    </div>
+    <div class="chart-container">
+      <canvas id="chartHeap"></canvas>
+    </div>
+    <div class="chart-container">
+      <canvas id="chartBreakdown"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="section" id="rawSection" style="display:none">
+  <h2>Raw Data (JSON)</h2>
+  <pre id="rawData"></pre>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+"use strict";
+
+// Simulate the client-side filtering the UI does (applications-list.tsx)
+function simulateClientFilter(applications) {
+  return applications.map(app => {
+    let isAppOfAppsPattern = false;
+    if (app.status?.resources) {
+      for (const resource of app.status.resources) {
+        if (resource.kind === 'Application') {
+          isAppOfAppsPattern = true;
+          break;
+        }
+      }
+    }
+    return { ...app, isAppOfAppsPattern };
+  }).filter(app => {
+    const healthOk = true;
+    const syncOk = true;
+    const searchOk = true;
+    return healthOk && syncOk && searchOk;
+  });
+}
+
+// Simulate the sort the Paginate component does
+function simulateSort(applications) {
+  return [...applications].sort((a, b) =>
+    a.metadata.name.localeCompare(b.metadata.name, undefined, { numeric: true })
+  );
+}
+
+// --- Measurement helpers ---
+
+function getHeapUsed() {
+  if (performance.memory) {
+    return performance.memory.usedJSHeapSize;
+  }
+  return null;
+}
+
+function getHeapTotal() {
+  if (performance.memory) {
+    return performance.memory.totalJSHeapSize;
+  }
+  return null;
+}
+
+function forceGC() {
+  if (window.gc) {
+    window.gc();
+    window.gc();
+  }
+}
+
+// measureLiveFromString: measures parse/filter/sort on a JSON string already fetched.
+// Used by Puppeteer (Node.js fetches, injects string, page measures).
+async function measureLiveFromString(jsonString) {
+  forceGC();
+  await new Promise(r => setTimeout(r, 50));
+  const heapBeforeParse = getHeapUsed();
+
+  const t2 = performance.now();
+  const parsed = JSON.parse(jsonString);
+  const parseTime = performance.now() - t2;
+
+  const actualCount = parsed.items?.length || 0;
+  const heapAfterParse = getHeapUsed();
+
+  const t3 = performance.now();
+  const items = parsed.items || [];
+  for (const app of items) {
+    app.status = app.status || {};
+    app.status.resources = app.status.resources || [];
+  }
+  const normalizeTime = performance.now() - t3;
+
+  const t4 = performance.now();
+  simulateClientFilter(items);
+  const filterTime = performance.now() - t4;
+
+  const t5 = performance.now();
+  simulateSort(items);
+  const sortTime = performance.now() - t5;
+
+  return {
+    count: actualCount, resourcesPerApp: 'live',
+    jsonSizeBytes: jsonString.length,
+    jsonSizeMB: (jsonString.length / (1024 * 1024)).toFixed(2),
+    parseTime, stringifyTime: 0, normalizeTime, filterTime, sortTime,
+    renderPrepTime: 0,
+    filterSortTotal: filterTime + sortTime,
+    totalCPU: parseTime + normalizeTime + filterTime + sortTime,
+    heapUsed: heapAfterParse,
+    heapDelta: heapAfterParse && heapBeforeParse ? heapAfterParse - heapBeforeParse : null,
+    heapBeforeParse, heapFinal: getHeapUsed(),
+    objectsCreated: actualCount, generateTime: 0,
+    severity: parseTime > 3000 ? 'danger' : parseTime > 1000 ? 'warn' : 'ok',
+    mainThreadBlocked: parseTime > 50 ? `${(parseTime / 1000).toFixed(1)}s` : 'No'
+  };
+}
+
+const APP_LIST_FIELDS_STR = [
+  'items.metadata.name', 'items.metadata.namespace', 'items.metadata.annotations',
+  'items.metadata.labels', 'items.metadata.creationTimestamp', 'items.metadata.deletionTimestamp',
+  'items.spec', 'items.operation.sync',
+  'items.status.sync.status', 'items.status.sync.revision', 'items.status.health',
+  'items.status.operationState.phase', 'items.status.operationState.finishedAt',
+  'items.status.operationState.operation.sync', 'items.status.summary', 'items.status.resources'
+].join(',');
+
+async function measureLive() {
+  const baseUrl = $('apiUrl').value.replace(/\/$/, '');
+  const token = $('apiToken').value;
+  const cacheBuster = `_cb=${Date.now()}`;
+  const endpoint = `${baseUrl}/api/v1/applications?fields=metadata.resourceVersion,${APP_LIST_FIELDS_STR}&${cacheBuster}`;
+
+  const heapBefore = getHeapUsed();
+  const t0 = performance.now();
+
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+      cache: 'no-store',
+    });
+  } catch (err) {
+    throw new Error(
+      `Fetch failed — this is likely a CORS error. To fix, launch Chrome with:\n` +
+      `  open -a "Google Chrome" --args --disable-web-security --user-data-dir=/tmp/bench-chrome\n` +
+      `\nOr use the automated Puppeteer script (no CORS issues):\n` +
+      `  ./hack/browser-perf-bench/run.sh --url=${baseUrl} --token=<token>\n` +
+      `\nOriginal error: ${err.message}`
+    );
+  }
+  if (!response.ok) {
+    throw new Error(`API returned ${response.status}: ${response.statusText}. Check your URL and token.`);
+  }
+  const networkTime = performance.now() - t0;
+
+  const t1 = performance.now();
+  const text = await response.text();
+  const downloadTime = performance.now() - t1;
+
+  forceGC();
+  const heapBeforeParse = getHeapUsed();
+
+  const t2 = performance.now();
+  const parsed = JSON.parse(text);
+  const parseTime = performance.now() - t2;
+
+  const actualCount = parsed.items?.length || 0;
+  const heapAfterParse = getHeapUsed();
+
+  const t3 = performance.now();
+  const items = parsed.items || [];
+  for (const app of items) {
+    app.status = app.status || {};
+    app.status.resources = app.status.resources || [];
+  }
+  const normalizeTime = performance.now() - t3;
+
+  const t4 = performance.now();
+  simulateClientFilter(items);
+  const filterTime = performance.now() - t4;
+
+  const t5 = performance.now();
+  simulateSort(items);
+  const sortTime = performance.now() - t5;
+
+  return {
+    count: actualCount,
+    resourcesPerApp: 'live',
+    jsonSizeBytes: text.length,
+    jsonSizeMB: (text.length / (1024 * 1024)).toFixed(2),
+    parseTime, stringifyTime: 0, normalizeTime, filterTime, sortTime,
+    renderPrepTime: 0,
+    filterSortTotal: filterTime + sortTime,
+    totalCPU: parseTime + normalizeTime + filterTime + sortTime,
+    heapUsed: heapAfterParse,
+    heapDelta: heapAfterParse && heapBeforeParse ? heapAfterParse - heapBeforeParse : null,
+    heapBeforeParse, heapFinal: getHeapUsed(),
+    objectsCreated: actualCount,
+    generateTime: 0,
+    networkTime, downloadTime,
+    severity: parseTime > 3000 ? 'danger' : parseTime > 1000 ? 'warn' : 'ok',
+    mainThreadBlocked: parseTime > 50 ? `${(parseTime / 1000).toFixed(1)}s` : 'No'
+  };
+}
+
+// --- UI update helpers ---
+const $ = id => document.getElementById(id);
+let allResults = [];
+let charts = {};
+
+function setStatus(msg) { $('status').textContent = msg; }
+function setProgress(pct) { $('progress').style.width = pct + '%'; }
+
+function updateCards(r) {
+  $('liveMetrics').style.display = '';
+  const cards = [
+    { label: 'Applications', value: r.count.toLocaleString(), unit: '', severity: 'ok' },
+    { label: 'JSON Payload Size', value: r.jsonSizeMB, unit: 'MB', severity: r.jsonSizeBytes > 50e6 ? 'danger' : r.jsonSizeBytes > 20e6 ? 'warn' : 'ok' },
+    { label: 'JSON.parse() Time', value: r.parseTime.toFixed(0), unit: 'ms', severity: r.parseTime > 3000 ? 'danger' : r.parseTime > 1000 ? 'warn' : 'ok' },
+    { label: 'Filter + Sort Time', value: r.filterSortTotal.toFixed(0), unit: 'ms', severity: r.filterSortTotal > 500 ? 'danger' : r.filterSortTotal > 200 ? 'warn' : 'ok' },
+    { label: 'Total Main-Thread CPU', value: r.totalCPU.toFixed(0), unit: 'ms', severity: r.totalCPU > 5000 ? 'danger' : r.totalCPU > 2000 ? 'warn' : 'ok' },
+    { label: 'Main Thread Blocked', value: r.mainThreadBlocked, unit: '', severity: r.parseTime > 3000 ? 'danger' : r.parseTime > 1000 ? 'warn' : 'ok' }
+  ];
+  $('cards').innerHTML = cards.map(c => `
+    <div class="metric-card ${c.severity}">
+      <div class="label">${c.label}</div>
+      <div class="value">${c.value} <span class="unit">${c.unit}</span></div>
+    </div>
+  `).join('');
+}
+
+function updateTable() {
+  $('resultsSection').style.display = '';
+  $('resultsBody').innerHTML = allResults.map((r, i) => `
+    <tr class="${r.severity}">
+      <td>${i + 1}</td>
+      <td>${r.count.toLocaleString()}</td>
+      <td>${r.jsonSizeMB}</td>
+      <td>${r.parseTime.toFixed(0)}</td>
+      <td>${r.filterSortTotal.toFixed(0)}</td>
+      <td>${r.totalCPU.toFixed(0)}</td>
+      <td>${r.heapUsed ? (r.heapUsed / 1048576).toFixed(0) : 'N/A'}</td>
+      <td>${r.heapDelta ? (r.heapDelta / 1048576).toFixed(0) : 'N/A'}</td>
+      <td>${r.mainThreadBlocked}</td>
+    </tr>
+  `).join('');
+}
+
+function updateCharts() {
+  $('chartsSection').style.display = '';
+  const labels = allResults.map((_, i) => `Run ${i + 1}`);
+  const parseData = allResults.map(r => r.parseTime);
+  const filterData = allResults.map(r => r.filterSortTotal);
+  const normalizeData = allResults.map(r => r.normalizeTime);
+  const heapData = allResults.map(r => r.heapUsed ? r.heapUsed / 1048576 : 0);
+  const heapDeltaData = allResults.map(r => r.heapDelta ? r.heapDelta / 1048576 : 0);
+
+  const chartOpts = {
+    responsive: true,
+    plugins: { legend: { labels: { color: '#8b949e' } } },
+    scales: {
+      x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' }, title: { display: true, text: 'Iteration', color: '#8b949e' } },
+      y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' }, beginAtZero: true }
+    }
+  };
+
+  function makeChart(id, cfg) {
+    if (charts[id]) charts[id].destroy();
+    charts[id] = new Chart($(id), cfg);
+  }
+
+  makeChart('chartParseTime', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'JSON.parse() (ms)', data: parseData, backgroundColor: 'rgba(248,81,73,0.7)' },
+        { label: 'Filter+Sort (ms)', data: filterData, backgroundColor: 'rgba(240,136,62,0.7)' }
+      ]
+    },
+    options: { ...chartOpts, scales: { ...chartOpts.scales, y: { ...chartOpts.scales.y, title: { display: true, text: 'Time (ms)', color: '#8b949e' } } },
+      plugins: { ...chartOpts.plugins, title: { display: true, text: 'Main Thread Blocking Time per Iteration', color: '#c9d1d9' } } }
+  });
+
+  makeChart('chartHeap', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Heap Used (MB)', data: heapData, backgroundColor: 'rgba(88,166,255,0.6)' },
+        { label: 'Heap Delta from Parse (MB)', data: heapDeltaData, backgroundColor: 'rgba(248,81,73,0.6)' }
+      ]
+    },
+    options: { ...chartOpts, scales: { ...chartOpts.scales, y: { ...chartOpts.scales.y, title: { display: true, text: 'Memory (MB)', color: '#8b949e' } } },
+      plugins: { ...chartOpts.plugins, title: { display: true, text: 'JavaScript Heap Memory per Iteration', color: '#c9d1d9' } } }
+  });
+
+  makeChart('chartBreakdown', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'JSON.parse()', data: parseData, backgroundColor: 'rgba(248,81,73,0.7)' },
+        { label: 'Normalize', data: normalizeData, backgroundColor: 'rgba(240,136,62,0.7)' },
+        { label: 'Filter', data: allResults.map(r => r.filterTime), backgroundColor: 'rgba(210,153,34,0.7)' },
+        { label: 'Sort', data: allResults.map(r => r.sortTime), backgroundColor: 'rgba(63,185,80,0.7)' }
+      ]
+    },
+    options: {
+      ...chartOpts,
+      scales: { ...chartOpts.scales, x: { ...chartOpts.scales.x, stacked: true }, y: { ...chartOpts.scales.y, stacked: true, title: { display: true, text: 'Time (ms)', color: '#8b949e' } } },
+      plugins: { ...chartOpts.plugins, title: { display: true, text: 'CPU Time Breakdown by Operation', color: '#c9d1d9' } }
+    }
+  });
+}
+
+async function runBenchmark() {
+  const btn = $('btnRun');
+  btn.disabled = true;
+  allResults = [];
+
+  const iterations = parseInt($('iterations').value, 10);
+
+  for (let iter = 0; iter < iterations; iter++) {
+    setProgress(((iter + 1) / iterations) * 100);
+    setStatus(`Iteration ${iter + 1}/${iterations}...`);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    let result;
+    try {
+      result = await measureLive();
+    } catch (err) {
+      setStatus(`Error: ${err.message}`);
+      btn.disabled = false;
+      return;
+    }
+
+    allResults.push(result);
+    updateCards(result);
+    updateTable();
+    updateCharts();
+  }
+
+  // Show raw data
+  $('rawSection').style.display = '';
+  $('rawData').textContent = JSON.stringify(allResults, null, 2);
+
+  // Compute and display average
+  const avg = computeAverage(allResults);
+  setStatus(`Benchmark complete. ${allResults[0].count.toLocaleString()} apps — avg JSON.parse: ${avg.parseTime.toFixed(0)}ms, avg total CPU: ${avg.totalCPU.toFixed(0)}ms`);
+  setProgress(100);
+  btn.disabled = false;
+  $('btnExport').disabled = false;
+  $('btnCopy').disabled = false;
+
+  window.__benchmarkResults = allResults;
+  window.dispatchEvent(new CustomEvent('benchmark-complete', { detail: allResults }));
+}
+
+function computeAverage(results) {
+  const avg = { ...results[0] };
+  const numericKeys = ['parseTime', 'stringifyTime', 'filterTime', 'sortTime', 'normalizeTime',
+    'renderPrepTime', 'filterSortTotal', 'totalCPU'];
+  const n = results.length;
+  for (const key of numericKeys) {
+    avg[key] = results.reduce((sum, r) => sum + (r[key] || 0), 0) / n;
+  }
+  if (avg.heapUsed) avg.heapUsed = results.reduce((sum, r) => sum + (r.heapUsed || 0), 0) / n;
+  if (avg.heapDelta !== null) avg.heapDelta = results.reduce((sum, r) => sum + (r.heapDelta || 0), 0) / n;
+  if (avg.parseTime > 3000) avg.severity = 'danger';
+  else if (avg.parseTime > 1000) avg.severity = 'warn';
+  else avg.severity = 'ok';
+  avg.mainThreadBlocked = avg.parseTime > 50 ? `${(avg.parseTime / 1000).toFixed(1)}s` : 'No';
+  return avg;
+}
+
+function exportResults() {
+  if (!allResults.length) return;
+  const headers = ['Run', 'Apps', 'JSON Size (MB)', 'JSON.parse (ms)', 'Filter+Sort (ms)', 'Total CPU (ms)', 'Heap Used (MB)', 'Heap Delta (MB)'];
+  const rows = allResults.map((r, i) => [
+    i + 1, r.count, r.jsonSizeMB, r.parseTime.toFixed(1), r.filterSortTotal.toFixed(1),
+    r.totalCPU.toFixed(1), r.heapUsed ? (r.heapUsed / 1048576).toFixed(0) : 'N/A',
+    r.heapDelta ? (r.heapDelta / 1048576).toFixed(0) : 'N/A'
+  ]);
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `argocd-ui-benchmark-${new Date().toISOString().slice(0, 19)}.csv`;
+  a.click();
+}
+
+function copyMarkdown() {
+  if (!allResults.length) return;
+  const avg = computeAverage(allResults);
+  let md = `## Argo CD UI Performance Benchmark Results\n\n`;
+  md += `**Date:** ${new Date().toISOString()}\n`;
+  md += `**Browser:** ${navigator.userAgent}\n`;
+  md += `**Applications:** ${allResults[0].count.toLocaleString()}\n`;
+  md += `**Iterations:** ${allResults.length}\n\n`;
+  md += `| Run | Apps | JSON Size | JSON.parse | Filter+Sort | Total CPU | Heap Delta | Blocked |\n`;
+  md += `|----:|-----:|----------:|-----------:|------------:|----------:|-----------:|--------:|\n`;
+  for (let i = 0; i < allResults.length; i++) {
+    const r = allResults[i];
+    md += `| ${i + 1} | ${r.count.toLocaleString()} | ${r.jsonSizeMB} MB | ${r.parseTime.toFixed(0)} ms | ${r.filterSortTotal.toFixed(0)} ms | ${r.totalCPU.toFixed(0)} ms | ${r.heapDelta ? (r.heapDelta / 1048576).toFixed(0) : 'N/A'} MB | ${r.mainThreadBlocked} |\n`;
+  }
+  md += `| **Avg** | ${avg.count.toLocaleString()} | ${avg.jsonSizeMB} MB | ${avg.parseTime.toFixed(0)} ms | ${avg.filterSortTotal.toFixed(0)} ms | ${avg.totalCPU.toFixed(0)} ms | ${avg.heapDelta ? (avg.heapDelta / 1048576).toFixed(0) : 'N/A'} MB | ${avg.mainThreadBlocked} |\n`;
+
+  md += `\n### Key Findings\n\n`;
+  md += `- At **${avg.count.toLocaleString()} applications**, JSON.parse() alone blocks the main thread for **${(avg.parseTime / 1000).toFixed(1)} seconds** (avg)\n`;
+  md += `- The JSON payload is **${avg.jsonSizeMB} MB** — the browser must parse this entirely before any UI can render\n`;
+  md += `- Total CPU time on the main thread: **${(avg.totalCPU / 1000).toFixed(1)} seconds** (parse + filter + sort)\n`;
+  if (avg.heapDelta) {
+    md += `- Heap memory increases by **${(avg.heapDelta / 1048576).toFixed(0)} MB** just from parsing the JSON response\n`;
+  }
+  md += `- Any operation above **50ms** causes visible jank; above **100ms** feels broken to users\n`;
+
+  md += `\n### CPU Time Breakdown (avg over ${allResults.length} iterations)\n\n`;
+  md += `| Operation | Time (ms) | % of Total |\n`;
+  md += `|-----------|----------:|-----------:|\n`;
+  const ops = [
+    ['JSON.parse()', avg.parseTime],
+    ['Field normalization', avg.normalizeTime],
+    ['Client-side filtering', avg.filterTime],
+    ['Client-side sorting', avg.sortTime]
+  ];
+  for (const [name, time] of ops) {
+    md += `| ${name} | ${time.toFixed(0)} | ${((time / avg.totalCPU) * 100).toFixed(1)}% |\n`;
+  }
+  md += `\n> JSON.parse() dominates at **${((avg.parseTime / avg.totalCPU) * 100).toFixed(0)}%** of total CPU time. This is the primary bottleneck.\n`;
+
+  navigator.clipboard.writeText(md).then(() => {
+    setStatus('Markdown copied to clipboard!');
+    setTimeout(() => setStatus(''), 3000);
+  });
+}
+
+// Detect performance.memory availability
+if (!performance.memory) {
+  setStatus('Note: Run Chrome with --enable-precise-memory-info and --js-flags="--expose-gc" for heap metrics. Memory columns will show N/A otherwise.');
+}
+</script>
+</body>
+</html>

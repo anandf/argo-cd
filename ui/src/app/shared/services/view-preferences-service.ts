@@ -96,6 +96,7 @@ export class AppsListPreferences extends AbstractAppsListPreferences {
         pref.syncFilter = [];
         pref.autoSyncFilter = [];
         pref.operationFilter = [];
+        pref.appNamespaceFilter = '';
     }
 
     public projectsFilter: string[];

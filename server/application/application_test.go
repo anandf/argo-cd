@@ -1693,6 +1693,187 @@ func BenchmarkListMuchAppsWithRepo(b *testing.B) {
 	}
 }
 
+func BenchmarkListPaginated(b *testing.B) {
+	apps := generateTestApp(10000)
+	obj := make([]runtime.Object, len(apps))
+	for i, v := range apps {
+		obj[i] = v
+	}
+	appServer := newTestAppServerWithBenchmark(b, obj...)
+	limit := int64(50)
+
+	for b.Loop() {
+		_, err := appServer.List(b.Context(), &application.ApplicationQuery{Limit: &limit})
+		if err != nil {
+			break
+		}
+	}
+}
+
+func BenchmarkListPaginatedPage10(b *testing.B) {
+	apps := generateTestApp(10000)
+	obj := make([]runtime.Object, len(apps))
+	for i, v := range apps {
+		obj[i] = v
+	}
+	appServer := newTestAppServerWithBenchmark(b, obj...)
+	limit := int64(50)
+	offset := int64(450)
+
+	// Warm the RBAC name cache with one request.
+	_, _ = appServer.List(b.Context(), &application.ApplicationQuery{})
+
+	b.ResetTimer()
+	for b.Loop() {
+		_, err := appServer.List(b.Context(), &application.ApplicationQuery{
+			Limit:  &limit,
+			Offset: &offset,
+		})
+		if err != nil {
+			break
+		}
+	}
+}
+
+func BenchmarkListCacheHitVsMiss(b *testing.B) {
+	apps := generateTestApp(5000)
+	obj := make([]runtime.Object, len(apps))
+	for i, v := range apps {
+		obj[i] = v
+	}
+	appServer := newTestAppServerWithBenchmark(b, obj...)
+
+	b.Run("CacheMiss", func(b *testing.B) {
+		for b.Loop() {
+			_, err := appServer.List(b.Context(), &application.ApplicationQuery{})
+			if err != nil {
+				break
+			}
+		}
+	})
+
+	b.Run("CacheHit", func(b *testing.B) {
+		// Warm the cache once.
+		_, _ = appServer.List(b.Context(), &application.ApplicationQuery{})
+		b.ResetTimer()
+		for b.Loop() {
+			_, err := appServer.List(b.Context(), &application.ApplicationQuery{})
+			if err != nil {
+				break
+			}
+		}
+	})
+}
+
+func BenchmarkListPaginatedVsFull(b *testing.B) {
+	apps := generateTestApp(10000)
+	obj := make([]runtime.Object, len(apps))
+	for i, v := range apps {
+		obj[i] = v
+	}
+	appServer := newTestAppServerWithBenchmark(b, obj...)
+
+	b.Run("Full", func(b *testing.B) {
+		for b.Loop() {
+			_, err := appServer.List(b.Context(), &application.ApplicationQuery{})
+			if err != nil {
+				break
+			}
+		}
+	})
+
+	b.Run("Limit50", func(b *testing.B) {
+		limit := int64(50)
+		for b.Loop() {
+			_, err := appServer.List(b.Context(), &application.ApplicationQuery{Limit: &limit})
+			if err != nil {
+				break
+			}
+		}
+	})
+
+	b.Run("Limit100", func(b *testing.B) {
+		limit := int64(100)
+		for b.Loop() {
+			_, err := appServer.List(b.Context(), &application.ApplicationQuery{Limit: &limit})
+			if err != nil {
+				break
+			}
+		}
+	})
+
+	b.Run("Limit500", func(b *testing.B) {
+		limit := int64(500)
+		for b.Loop() {
+			_, err := appServer.List(b.Context(), &application.ApplicationQuery{Limit: &limit})
+			if err != nil {
+				break
+			}
+		}
+	})
+}
+
+func BenchmarkListWithRBACRoles(b *testing.B) {
+	apps := generateTestApp(5000)
+	obj := make([]runtime.Object, len(apps))
+	for i, v := range apps {
+		obj[i] = v
+	}
+
+	f := func(enf *rbac.Enforcer) {
+		_ = enf.SetBuiltinPolicy("p, role:limited, applications, get, default/*, allow")
+		enf.SetDefaultRole("role:limited")
+	}
+	appServer := newTestAppServerWithEnforcerConfigureWithBenchmark(b, f, obj...)
+
+	b.Run("Full", func(b *testing.B) {
+		for b.Loop() {
+			_, err := appServer.List(b.Context(), &application.ApplicationQuery{})
+			if err != nil {
+				break
+			}
+		}
+	})
+
+	b.Run("Paginated", func(b *testing.B) {
+		limit := int64(50)
+		for b.Loop() {
+			_, err := appServer.List(b.Context(), &application.ApplicationQuery{Limit: &limit})
+			if err != nil {
+				break
+			}
+		}
+	})
+}
+
+func BenchmarkListPaginatedWalkAllPages(b *testing.B) {
+	apps := generateTestApp(1000)
+	obj := make([]runtime.Object, len(apps))
+	for i, v := range apps {
+		obj[i] = v
+	}
+	appServer := newTestAppServerWithBenchmark(b, obj...)
+	limit := int64(50)
+
+	for b.Loop() {
+		var continueToken string
+		for {
+			q := &application.ApplicationQuery{Limit: &limit}
+			if continueToken != "" {
+				q.Continue = &continueToken
+			}
+			res, err := appServer.List(b.Context(), q)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if res.ListMeta.Continue == "" {
+				break
+			}
+			continueToken = res.ListMeta.Continue
+		}
+	}
+}
+
 func TestCreateApp(t *testing.T) {
 	testApp := newTestApp()
 	appServer := newTestAppServer(t)

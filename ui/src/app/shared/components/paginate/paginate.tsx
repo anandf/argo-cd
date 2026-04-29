@@ -29,7 +29,7 @@ export function Paginate<T>({page, onPageChange, children, data, totalCount, emp
         <DataLoader load={() => services.viewPreferences.getPreferences()}>
             {pref => {
                 preferencesKey = preferencesKey || 'default';
-                const pageSize = pref.pageSizes[preferencesKey] || 10;
+                const pageSize = preferencesKey in pref.pageSizes ? pref.pageSizes[preferencesKey] : -1;
                 const sortOption = sortOptions ? (pref.sortOptions && pref.sortOptions[preferencesKey]) || sortOptions[0].title : '';
                 const isServerSide = totalCount != null && totalCount > data.length;
                 const effectiveTotal = isServerSide ? totalCount : data.length;
@@ -84,7 +84,7 @@ export function Paginate<T>({page, onPageChange, children, data, totalCount, emp
                                                 Items per page: {pageSize === -1 ? 'all' : pageSize} <i className='fa fa-caret-down' />
                                             </a>
                                         )}
-                                        items={[5, 10, 15, 20, -1].map(count => ({
+                                        items={[10, 20, 50, 100, 200, -1].map(count => ({
                                             title: count === -1 ? 'all' : count.toString(),
                                             action: () => {
                                                 pref.pageSizes[preferencesKey] = count;

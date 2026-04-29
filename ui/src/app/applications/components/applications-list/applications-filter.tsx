@@ -372,6 +372,26 @@ const NamespaceFilter = React.memo((props: AppFilterProps) => {
     );
 });
 
+const AppNamespaceFilter = React.memo((props: AppFilterProps) => {
+    const appNamespaceOptions = React.useMemo(
+        () =>
+            optionsFrom(
+                Array.from(new Set(props.apps.map(app => app.metadata.namespace).filter(item => !!item))),
+                props.pref.appNamespaceFilter ? [props.pref.appNamespaceFilter] : []
+            ),
+        [props.apps, props.pref.appNamespaceFilter]
+    );
+    return (
+        <Filter
+            label='APP NAMESPACE'
+            selected={props.pref.appNamespaceFilter ? [props.pref.appNamespaceFilter] : []}
+            setSelected={s => props.onChange({...props.pref, appNamespaceFilter: s.length > 0 ? s[s.length - 1] : ''})}
+            field={true}
+            options={appNamespaceOptions}
+        />
+    );
+});
+
 const TargetRevisionFilter = (props: AppFilterProps) => {
     const targetRevisionOptions = React.useMemo(
         () =>
@@ -505,7 +525,8 @@ export const ApplicationsFilter = (props: AppFilterProps) => {
         ...(props.pref.namespacesFilter || []),
         ...(props.pref.targetRevisionFilter || []),
         ...(props.pref.autoSyncFilter || []),
-        ...(props.pref.showFavorites ? ['favorites'] : [])
+        ...(props.pref.showFavorites ? ['favorites'] : []),
+        ...(props.pref.appNamespaceFilter ? [props.pref.appNamespaceFilter] : [])
     ];
 
     const onClearFilter = () => {
@@ -525,6 +546,7 @@ export const ApplicationsFilter = (props: AppFilterProps) => {
             <ProjectFilter {...props} />
             <ClusterFilter {...props} />
             <NamespaceFilter {...props} />
+            <AppNamespaceFilter {...props} />
             <TargetRevisionFilter {...props} />
             <AutoSyncFilter {...props} collapsed={true} />
         </FiltersGroup>

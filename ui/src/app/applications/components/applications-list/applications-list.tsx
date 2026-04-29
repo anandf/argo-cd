@@ -4,8 +4,8 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import {Key, KeybindingContext, KeybindingProvider} from 'argo-ui/v2';
 import {RouteComponentProps} from 'react-router';
-import {combineLatest, from, merge, Observable} from 'rxjs';
-import {bufferTime, delay, filter, map, mergeMap, repeat, retryWhen} from 'rxjs/operators';
+import {combineLatest, EMPTY, from, merge, Observable, Subscription} from 'rxjs';
+import {bufferTime, delay, expand, filter, map, mergeMap, repeat, retryWhen} from 'rxjs/operators';
 import {AddAuthToToolbar, ClusterCtx, DataLoader, EmptyState, Page, Paginate, Spinner} from '../../../shared/components';
 import {AuthSettingsCtx, Consumer, Context, ContextApis} from '../../../shared/context';
 import * as models from '../../../shared/models';
@@ -28,6 +28,7 @@ import './flex-top-bar.scss';
 
 const EVENTS_BUFFER_TIMEOUT = 500;
 const WATCH_RETRY_TIMEOUT = 500;
+const PROGRESSIVE_BATCH_SIZE = 50;
 
 // The applications list/watch API supports only selected set of fields.
 // Make sure to register any new fields in the `appFields` map of `pkg/apiclient/application/forwarder_overwrite.go`.
@@ -75,10 +76,65 @@ interface ApplicationsData {
     totalCount: number;
 }
 
+function watchApplications(
+    applications: models.AbstractApplication[],
+    objectListKind: string,
+    projects: string[],
+    resourceVersion: string,
+    appNamespace: string,
+    watchFields: string[]
+): Observable<ApplicationsData> {
+    return services.applications
+        .watch(objectListKind, {projects, resourceVersion, appNamespace}, {fields: watchFields})
+        .pipe(repeat())
+        .pipe(retryWhen(errors => errors.pipe(delay(WATCH_RETRY_TIMEOUT))))
+        .pipe(bufferTime(EVENTS_BUFFER_TIMEOUT))
+        .pipe(
+            map(appChanges => {
+                appChanges.forEach(appChange => {
+                    const index = applications.findIndex(item => AppUtils.appInstanceName(item) === AppUtils.appInstanceName(appChange.application));
+                    switch (appChange.type) {
+                        case 'DELETED':
+                            if (index > -1) {
+                                applications.splice(index, 1);
+                            }
+                            break;
+                        default:
+                            if (index > -1) {
+                                applications[index] = appChange.application;
+                            } else {
+                                applications.unshift(appChange.application);
+                            }
+                            break;
+                    }
+                });
+                return {applications, totalCount: applications.length, updated: appChanges.length > 0};
+            })
+        )
+        .pipe(filter(item => item.updated))
+        .pipe(map(item => ({applications: item.applications, totalCount: item.totalCount})));
+}
+
 function loadApplications(projects: string[], appNamespace: string, objectListKind: string, limit?: number, offset?: number): Observable<ApplicationsData> {
     const isApplication = objectListKind === 'application';
     const listFields = isApplication ? APP_LIST_FIELDS : APPSET_LIST_FIELDS;
     const watchFields = isApplication ? APP_WATCH_FIELDS : APPSET_WATCH_FIELDS;
+
+    if (limit && limit > 0) {
+        return loadApplicationsPaginated(projects, appNamespace, objectListKind, listFields, watchFields, limit, offset);
+    }
+    return loadApplicationsProgressively(projects, appNamespace, objectListKind, listFields, watchFields);
+}
+
+function loadApplicationsPaginated(
+    projects: string[],
+    appNamespace: string,
+    objectListKind: string,
+    listFields: string[],
+    watchFields: string[],
+    limit: number,
+    offset?: number
+): Observable<ApplicationsData> {
     return from(services.applications.list(projects, objectListKind, {appNamespace, fields: listFields, limit, offset})).pipe(
         mergeMap(applicationsList => {
             const applications = applicationsList.items;
@@ -86,39 +142,69 @@ function loadApplications(projects: string[], appNamespace: string, objectListKi
             const totalCount = remaining != null ? applications.length + parseInt(remaining, 10) : applications.length;
             return merge(
                 from([{applications, totalCount}]),
-                services.applications
-                    .watch(objectListKind, {projects, resourceVersion: applicationsList.metadata.resourceVersion}, {fields: watchFields})
-                    .pipe(repeat())
-                    .pipe(retryWhen(errors => errors.pipe(delay(WATCH_RETRY_TIMEOUT))))
-                    // batch events to avoid constant re-rendering and improve UI performance
-                    .pipe(bufferTime(EVENTS_BUFFER_TIMEOUT))
-                    .pipe(
-                        map(appChanges => {
-                            appChanges.forEach(appChange => {
-                                const index = applications.findIndex(item => AppUtils.appInstanceName(item) === AppUtils.appInstanceName(appChange.application));
-                                switch (appChange.type) {
-                                    case 'DELETED':
-                                        if (index > -1) {
-                                            applications.splice(index, 1);
-                                        }
-                                        break;
-                                    default:
-                                        if (index > -1) {
-                                            applications[index] = appChange.application;
-                                        } else {
-                                            applications.unshift(appChange.application);
-                                        }
-                                        break;
-                                }
-                            });
-                            return {applications, totalCount, updated: appChanges.length > 0};
-                        })
-                    )
-                    .pipe(filter(item => item.updated))
-                    .pipe(map(item => ({applications: item.applications, totalCount: item.totalCount})))
+                watchApplications(applications, objectListKind, projects, applicationsList.metadata.resourceVersion, appNamespace, watchFields)
             );
         })
     );
+}
+
+function loadApplicationsProgressively(
+    projects: string[],
+    appNamespace: string,
+    objectListKind: string,
+    listFields: string[],
+    watchFields: string[]
+): Observable<ApplicationsData> {
+    return new Observable<ApplicationsData>(subscriber => {
+        const applications: models.AbstractApplication[] = [];
+        let resourceVersion = '';
+        let batchSub: Subscription | null = null;
+        let watchSub: Subscription | null = null;
+
+        const fetchBatch = (batchOffset: number) =>
+            from(services.applications.list(projects, objectListKind, {appNamespace, fields: listFields, limit: PROGRESSIVE_BATCH_SIZE, offset: batchOffset}));
+
+        batchSub = fetchBatch(0)
+            .pipe(
+                expand((response, index) => {
+                    const remaining = (response.metadata as any)?.remainingItemCount;
+                    if (remaining != null && parseInt(remaining, 10) > 0) {
+                        return fetchBatch((index + 1) * PROGRESSIVE_BATCH_SIZE);
+                    }
+                    return EMPTY;
+                })
+            )
+            .subscribe({
+                next: response => {
+                    if (!resourceVersion) {
+                        resourceVersion = response.metadata.resourceVersion;
+                    }
+                    for (const app of response.items) {
+                        const existing = applications.findIndex(item => AppUtils.appInstanceName(item) === AppUtils.appInstanceName(app));
+                        if (existing === -1) {
+                            applications.push(app);
+                        } else {
+                            applications[existing] = app;
+                        }
+                    }
+                    const remaining = (response.metadata as any)?.remainingItemCount;
+                    const totalCount = remaining != null ? applications.length + parseInt(remaining, 10) : applications.length;
+                    subscriber.next({applications: [...applications], totalCount});
+                },
+                error: err => subscriber.error(err),
+                complete: () => {
+                    watchSub = watchApplications(applications, objectListKind, projects, resourceVersion, appNamespace, watchFields).subscribe({
+                        next: data => subscriber.next(data),
+                        error: err => subscriber.error(err)
+                    });
+                }
+            });
+
+        return () => {
+            batchSub?.unsubscribe();
+            watchSub?.unsubscribe();
+        };
+    });
 }
 
 const ViewPref = ({children}: {children: (pref: AppsListPreferences & {page: number; search: string}) => React.ReactNode}) => {
@@ -199,6 +285,9 @@ const ViewPref = ({children}: {children: (pref: AppsListPreferences & {page: num
                                 .split(',')
                                 .map(decodeURIComponent)
                                 .filter(item => !!item);
+                        }
+                        if (params.get('appNamespace') != null) {
+                            viewPref.appNamespaceFilter = params.get('appNamespace') || '';
                         }
                         return {...viewPref, page: parseInt(params.get('page') || '0', 10), search: params.get('search') || ''};
                     })
@@ -467,11 +556,12 @@ export const ApplicationsList = (props: RouteComponentProps<any> & {objectListKi
         // app refreshing might be done too quickly so that UI might miss it due to event batching
         // add refreshing annotation in the UI to improve user experience
         if (loaderRef.current) {
-            const applications = loaderRef.current.getData() as models.Application[];
+            const data = loaderRef.current.getData() as ApplicationsData;
+            const applications = data.applications as models.Application[];
             const app = applications.find(item => item.metadata.name === appName && item.metadata.namespace === appNamespace);
             if (app) {
                 AppUtils.setAppRefreshing(app);
-                loaderRef.current.setData(applications);
+                loaderRef.current.setData(data);
             }
         }
         services.applications.get(appName, appNamespace, objectListKind, 'normal');
@@ -492,6 +582,7 @@ export const ApplicationsList = (props: RouteComponentProps<any> & {objectListKi
                 labels: newPref.labelsFilter.map(encodeURIComponent).join(','),
                 annotations: newPref.annotationsFilter.map(encodeURIComponent).join(','),
                 operation: newPref.operationFilter.join(','),
+                appNamespace: newPref.appNamespaceFilter || null,
                 // Keep URL and preferences consistent. When false, remove the param entirely.
                 showFavorites: newPref.showFavorites ? 'true' : null
             },
@@ -550,9 +641,9 @@ export const ApplicationsList = (props: RouteComponentProps<any> & {objectListKi
                                     }}
                                     hideAuth={true}>
                                     <DataLoader
-                                        input={pref.projectsFilter?.join(',')}
+                                        input={`${pref.projectsFilter?.join(',')};${pref.appNamespaceFilter || ''}`}
                                         ref={loaderRef}
-                                        load={() => AppUtils.handlePageVisibility(() => loadApplications(pref.projectsFilter, query.get('appNamespace'), objectListKind))}
+                                        load={() => AppUtils.handlePageVisibility(() => loadApplications(pref.projectsFilter, pref.appNamespaceFilter || query.get('appNamespace'), objectListKind))}
                                         loadingRenderer={() => (
                                             <div className='argo-container'>
                                                 <MockupList height={100} marginTop={30} />
