@@ -1,6 +1,10 @@
 package graphcache
 
 import (
+	"context"
+	"sync/atomic"
+	"time"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -23,11 +27,13 @@ type RelationshipStore interface {
 // RelationshipPersistenceManager manages the lifecycle of relationship persistence
 // It works with any RelationshipStore implementation
 type RelationshipPersistenceManager struct {
-	store             RelationshipStore
-	cache             *TypeRelationshipCache
-	minConfidence     int
-	persistenceCount  int64
-	autoSaveEnabled   bool
+	store            RelationshipStore
+	cache            *TypeRelationshipCache
+	minConfidence    int
+	persistenceCount atomic.Int64
+	autoSaveEnabled  bool
+	saveInterval     time.Duration
+	cancel           context.CancelFunc
 }
 
 // PersistenceConfig contains configuration for relationship persistence
@@ -44,6 +50,9 @@ type PersistenceConfig struct {
 	// AutoSave enables automatic background persistence
 	// If false, caller must manually call Save()
 	AutoSave bool
+
+	// SaveInterval is the interval between automatic saves (default: 5m)
+	SaveInterval time.Duration
 }
 
 // NewRelationshipPersistenceManager creates a new persistence manager
@@ -52,12 +61,17 @@ func NewRelationshipPersistenceManager(config PersistenceConfig) *RelationshipPe
 	if config.MinConfidence == 0 {
 		config.MinConfidence = MinConfidenceToPersist
 	}
+	saveInterval := config.SaveInterval
+	if saveInterval == 0 {
+		saveInterval = 5 * time.Minute
+	}
 
 	return &RelationshipPersistenceManager{
 		store:           config.Store,
 		cache:           config.Cache,
 		minConfidence:   config.MinConfidence,
 		autoSaveEnabled: config.AutoSave,
+		saveInterval:    saveInterval,
 	}
 }
 
@@ -91,7 +105,29 @@ func (m *RelationshipPersistenceManager) Start() error {
 		"loaded":    len(relationships),
 	}).Info("Loaded persisted relationships")
 
+	if m.autoSaveEnabled {
+		ctx, cancel := context.WithCancel(context.Background())
+		m.cancel = cancel
+		go m.runAutoSave(ctx)
+	}
+
 	return nil
+}
+
+func (m *RelationshipPersistenceManager) runAutoSave(ctx context.Context) {
+	ticker := time.NewTicker(m.saveInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := m.Save(); err != nil {
+				log.WithError(err).Warn("Auto-save of relationships failed")
+			}
+		}
+	}
 }
 
 // Save persists current relationships to the store
@@ -131,14 +167,14 @@ func (m *RelationshipPersistenceManager) Save() error {
 		return err
 	}
 
-	m.persistenceCount++
+	count := m.persistenceCount.Add(1)
 
 	log.WithFields(log.Fields{
 		"component":         "graph-cache",
 		"relationships":     len(relationships),
 		"seeded":            seededCount,
 		"learned":           learnedCount,
-		"persistence_count": m.persistenceCount,
+		"persistence_count": count,
 	}).Info("Saved relationships")
 
 	return nil
@@ -146,6 +182,10 @@ func (m *RelationshipPersistenceManager) Save() error {
 
 // Stop performs final save and cleanup
 func (m *RelationshipPersistenceManager) Stop() error {
+	if m.cancel != nil {
+		m.cancel()
+	}
+
 	// Final save
 	if err := m.Save(); err != nil {
 		log.WithError(err).Warn("Failed to save relationships on shutdown")
@@ -158,7 +198,7 @@ func (m *RelationshipPersistenceManager) Stop() error {
 // GetStats returns statistics from both manager and store
 func (m *RelationshipPersistenceManager) GetStats() map[string]interface{} {
 	stats := map[string]interface{}{
-		"persistence_count": m.persistenceCount,
+		"persistence_count": m.persistenceCount.Load(),
 		"min_confidence":    m.minConfidence,
 		"auto_save":         m.autoSaveEnabled,
 	}

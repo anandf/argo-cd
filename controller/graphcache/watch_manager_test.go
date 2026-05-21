@@ -1,6 +1,7 @@
 package graphcache
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ func TestNewSelectiveWatchManager(t *testing.T) {
 	}
 
 	wm := NewSelectiveWatchManager(
+		context.Background(),
 		dynamicClient,
 		discoveryClient,
 		TrackingMethodLabel,
@@ -68,6 +70,7 @@ func TestEnsureWatch_ClusterScoped(t *testing.T) {
 	}
 
 	wm := NewSelectiveWatchManager(
+		context.Background(),
 		dynamicClient,
 		discoveryClient,
 		TrackingMethodLabel,
@@ -123,6 +126,7 @@ func TestEnsureWatch_DynamicNamespace(t *testing.T) {
 
 	namespaces := []string{"ns1"}
 	wm := NewSelectiveWatchManager(
+		context.Background(),
 		dynamicClient,
 		discoveryClient,
 		TrackingMethodLabel,

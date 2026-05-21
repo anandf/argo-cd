@@ -15,15 +15,16 @@ type GraphSnapshot struct {
 
 // SnapshotNode is a serializable representation of a ResourceNode
 type SnapshotNode struct {
-	Key             kube.ResourceKey  `json:"key"`
-	Version         string            `json:"version"`
-	UID             string            `json:"uid"`
-	ResourceVersion string            `json:"resourceVersion"`
-	ManagedBy       string            `json:"managedBy"`
-	TrackingID      string            `json:"trackingID"`
-	Parents         []ParentRef       `json:"parents"`
-	Info            *ResourceMetadata `json:"info,omitempty"`
-	CreatedAt       time.Time         `json:"createdAt"`
+	Key             kube.ResourceKey   `json:"key"`
+	Version         string             `json:"version"`
+	UID             string             `json:"uid"`
+	ResourceVersion string             `json:"resourceVersion"`
+	ManagedBy       string             `json:"managedBy"`
+	TrackingID      string             `json:"trackingID"`
+	Parents         []ParentRef        `json:"parents"`
+	Children        []kube.ResourceKey `json:"children,omitempty"`
+	Info            *ResourceMetadata  `json:"info,omitempty"`
+	CreatedAt       time.Time          `json:"createdAt"`
 }
 
 // GraphStore defines the interface for persisting graph snapshots

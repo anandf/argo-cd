@@ -127,21 +127,20 @@ func (dt *DescendantTracker) extractImplicitParents(obj *unstructured.Unstructur
 
 	case schema.GroupKind{Group: "", Kind: "PersistentVolumeClaim"}:
 		// PVC → StatefulSet (if created by volumeClaimTemplate)
-		// Check for label: statefulset.kubernetes.io/pod-name
-		labels := obj.GetLabels()
-		if podName, exists := labels["statefulset.kubernetes.io/pod-name"]; exists {
-			// Extract StatefulSet name from pod name (format: <sts-name>-<ordinal>)
-			stsName := extractStatefulSetName(podName)
-			if stsName != "" {
-				parents = append(parents, ParentRef{
-					ResourceKey: kube.ResourceKey{
-						Group:     "apps",
-						Kind:      "StatefulSet",
-						Namespace: obj.GetNamespace(),
-						Name:      stsName,
-					},
-				})
-			}
+		// StatefulSet PVCs are named <vct-name>-<sts-name>-<ordinal>.
+		// Extract the StatefulSet name by stripping the ordinal suffix first,
+		// then stripping any leading VCT prefix. This is a heuristic —
+		// we take the longest suffix that could be a StatefulSet name.
+		stsName := extractStatefulSetNameFromPVC(obj.GetName())
+		if stsName != "" {
+			parents = append(parents, ParentRef{
+				ResourceKey: kube.ResourceKey{
+					Group:     "apps",
+					Kind:      "StatefulSet",
+					Namespace: obj.GetNamespace(),
+					Name:      stsName,
+				},
+			})
 		}
 
 	case schema.GroupKind{Group: "", Kind: "Secret"}:
@@ -280,12 +279,18 @@ func (dt *DescendantTracker) extractPodReferences(obj *unstructured.Unstructured
 					})
 				}
 			}
+
+			// Check for projected volume sources
+			if projMap, found := volMap["projected"].(map[string]interface{}); found {
+				refs = append(refs, extractProjectedSources(projMap, namespace)...)
+			}
 		}
 	}
 
-	// Extract from envFrom (containers and initContainers)
+	// Extract from envFrom (containers, initContainers, and ephemeralContainers)
 	refs = append(refs, dt.extractEnvReferences(obj, namespace, "spec", "containers")...)
 	refs = append(refs, dt.extractEnvReferences(obj, namespace, "spec", "initContainers")...)
+	refs = append(refs, dt.extractEnvReferences(obj, namespace, "spec", "ephemeralContainers")...)
 
 	return refs
 }
@@ -303,8 +308,11 @@ func (dt *DescendantTracker) extractPodTemplateReferences(obj *unstructured.Unst
 	}
 
 	for _, basePath := range basePaths {
+		// Use three-index slice to cap capacity and prevent append aliasing
+		base := basePath[:len(basePath):len(basePath)]
+
 		// Check volumes
-		volumePath := append(basePath, "volumes")
+		volumePath := append(base, "volumes")
 		volumes, found, err := unstructured.NestedSlice(obj.Object, volumePath...)
 		if err == nil && found {
 			for _, vol := range volumes {
@@ -336,18 +344,61 @@ func (dt *DescendantTracker) extractPodTemplateReferences(obj *unstructured.Unst
 						})
 					}
 				}
+
+				// Projected volume
+				if projMap, found := volMap["projected"].(map[string]interface{}); found {
+					refs = append(refs, extractProjectedSources(projMap, namespace)...)
+				}
 			}
 		}
 
-		// Check envFrom in containers
-		containerPath := append(basePath, "containers")
+		// Check envFrom in containers, initContainers, and ephemeralContainers
+		containerPath := append(base, "containers")
 		refs = append(refs, dt.extractEnvReferences(obj, namespace, containerPath...)...)
 
-		// Check envFrom in initContainers
-		initContainerPath := append(basePath, "initContainers")
+		initContainerPath := append(base, "initContainers")
 		refs = append(refs, dt.extractEnvReferences(obj, namespace, initContainerPath...)...)
+
+		ephemeralContainerPath := append(base, "ephemeralContainers")
+		refs = append(refs, dt.extractEnvReferences(obj, namespace, ephemeralContainerPath...)...)
 	}
 
+	return refs
+}
+
+// extractProjectedSources extracts Secret and ConfigMap references from a projected volume.
+func extractProjectedSources(projMap map[string]interface{}, namespace string) []ResourceReference {
+	var refs []ResourceReference
+	sources, ok := projMap["sources"].([]interface{})
+	if !ok {
+		return refs
+	}
+	for _, src := range sources {
+		srcMap, ok := src.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if secretMap, found := srcMap["secret"].(map[string]interface{}); found {
+			if name, found := secretMap["name"].(string); found {
+				refs = append(refs, ResourceReference{
+					GroupKind: schema.GroupKind{Group: "", Kind: "Secret"},
+					Namespace: namespace,
+					Name:      name,
+					RefType:   RefTypeVolume,
+				})
+			}
+		}
+		if cmMap, found := srcMap["configMap"].(map[string]interface{}); found {
+			if name, found := cmMap["name"].(string); found {
+				refs = append(refs, ResourceReference{
+					GroupKind: schema.GroupKind{Group: "", Kind: "ConfigMap"},
+					Namespace: namespace,
+					Name:      name,
+					RefType:   RefTypeVolume,
+				})
+			}
+		}
+	}
 	return refs
 }
 
@@ -468,21 +519,46 @@ func extractGroup(apiVersion string) string {
 // extractStatefulSetName extracts the StatefulSet name from a pod name.
 // Pod name format: <statefulset-name>-<ordinal>
 func extractStatefulSetName(podName string) string {
-	// Find the last dash
 	lastDash := strings.LastIndex(podName, "-")
 	if lastDash == -1 {
 		return ""
 	}
 
-	// Check if what follows is a number (ordinal)
 	ordinal := podName[lastDash+1:]
 	for _, c := range ordinal {
 		if c < '0' || c > '9' {
-			return "" // Not a number
+			return ""
 		}
 	}
 
 	return podName[:lastDash]
+}
+
+// extractStatefulSetNameFromPVC extracts the StatefulSet name from a PVC name.
+// PVC name format: <volumeClaimTemplate-name>-<statefulset-name>-<ordinal>
+// For example: "data-myapp-0" → "myapp", "www-web-server-2" → "web-server"
+func extractStatefulSetNameFromPVC(pvcName string) string {
+	// Strip trailing ordinal: find last "-<digits>"
+	lastDash := strings.LastIndex(pvcName, "-")
+	if lastDash <= 0 {
+		return ""
+	}
+	ordinal := pvcName[lastDash+1:]
+	for _, c := range ordinal {
+		if c < '0' || c > '9' {
+			return ""
+		}
+	}
+	// remaining = "<vct-name>-<sts-name>"
+	remaining := pvcName[:lastDash]
+
+	// The VCT name is the first segment before a dash. The StatefulSet name is
+	// everything after. Find the first dash to split them.
+	firstDash := strings.Index(remaining, "-")
+	if firstDash == -1 || firstDash == len(remaining)-1 {
+		return ""
+	}
+	return remaining[firstDash+1:]
 }
 
 // ToResourceKey converts a ResourceReference to a ResourceKey.

@@ -89,7 +89,7 @@ func TestPersistenceManager_SaveUpdatesExistingConfigMap(t *testing.T) {
 	var persisted PersistedRelationships
 	err = json.Unmarshal([]byte(cm.Data[RelationshipDataKey]), &persisted)
 	require.NoError(t, err)
-	assert.Greater(t, len(persisted.Relationships), 10)
+	assert.GreaterOrEqual(t, len(persisted.Relationships), 10)
 }
 
 func TestPersistenceManager_StartLoadsNoConfigMap(t *testing.T) {

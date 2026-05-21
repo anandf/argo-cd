@@ -88,11 +88,6 @@ func (c *TypeRelationshipCache) seedWellKnownRelationships() {
 			Child:  schema.GroupVersionKind{Group: "discovery.k8s.io", Version: "v1", Kind: "EndpointSlice"},
 		},
 
-		// ReplicaSet also used by older controllers
-		{
-			Parent: schema.GroupVersionKind{Group: "extensions", Version: "v1beta1", Kind: "Deployment"},
-			Child:  schema.GroupVersionKind{Group: "extensions", Version: "v1beta1", Kind: "ReplicaSet"},
-		},
 	}
 
 	// Add all well-known relationships with high confidence

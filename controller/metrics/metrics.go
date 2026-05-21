@@ -240,6 +240,11 @@ func NewMetricsServer(addr string, appLister applister.ApplicationLister, appFil
 	return metricsServer, nil
 }
 
+// GetRegistry returns the Prometheus registry used by this metrics server.
+func (m *MetricsServer) GetRegistry() *prometheus.Registry {
+	return m.registry
+}
+
 func (m *MetricsServer) RegisterClustersInfoSource(ctx context.Context, source HasClustersInfo, db db.ArgoDB, clusterLabels []string) {
 	collector := NewClusterCollector(ctx, source, db.ListClusters, clusterLabels)
 	m.registry.MustRegister(collector)

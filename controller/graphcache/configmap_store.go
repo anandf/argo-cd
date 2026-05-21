@@ -78,43 +78,59 @@ func (s *ConfigMapStore) Save(relationships []PersistedRelationship, metadata Pe
 			return relationships[i].Confidence > relationships[j].Confidence
 		})
 
-		// Binary search to find max number of relationships that fit
-		truncatedCount := len(relationships)
-		for truncatedCount > 0 {
+		// Binary search to find max count that fits within the ConfigMap limit.
+		totalCount := len(relationships)
+		truncatedCount := sort.Search(totalCount, func(n int) bool {
+			// sort.Search finds the smallest n where f(n)==true.
+			// We test count = totalCount - n: does removing n entries make it fit?
+			count := totalCount - n
+			if count <= 0 {
+				return true
+			}
 			truncatedPersisted := PersistedRelationships{
 				Version:       "v1",
 				LastUpdated:   time.Now(),
-				Relationships: relationships[:truncatedCount],
+				Relationships: relationships[:count],
 				Metadata: PersistedRelationshipMetadata{
-					TotalRelationships: truncatedCount,
+					TotalRelationships: count,
 					SeededCount:        metadata.SeededCount,
 					LearnedCount:       metadata.LearnedCount,
 				},
 			}
-
-			data, err = json.MarshalIndent(truncatedPersisted, "", "  ")
-			if err != nil {
-				return fmt.Errorf("failed to marshal truncated relationships: %w", err)
+			d, e := json.MarshalIndent(truncatedPersisted, "", "  ")
+			if e != nil {
+				return false
 			}
-
-			if len(data) <= maxConfigMapSize {
-				log.WithFields(log.Fields{
-					"component":       "graph-cache",
-					"store":           "configmap",
-					"original_count":  len(relationships),
-					"truncated_count": truncatedCount,
-					"final_size":      len(data),
-				}).Info("Truncated relationships to fit ConfigMap size limit")
-				break
-			}
-
-			// Reduce by 10% and try again
-			truncatedCount = int(float64(truncatedCount) * 0.9)
-		}
-
-		if len(data) > maxConfigMapSize {
+			return len(d) <= maxConfigMapSize
+		})
+		// truncatedCount is how many to remove; keep the rest
+		keepCount := totalCount - truncatedCount
+		if keepCount <= 0 {
 			return fmt.Errorf("unable to truncate relationships to fit ConfigMap size limit")
 		}
+
+		truncatedPersisted := PersistedRelationships{
+			Version:       "v1",
+			LastUpdated:   time.Now(),
+			Relationships: relationships[:keepCount],
+			Metadata: PersistedRelationshipMetadata{
+				TotalRelationships: keepCount,
+				SeededCount:        metadata.SeededCount,
+				LearnedCount:       metadata.LearnedCount,
+			},
+		}
+		data, err = json.MarshalIndent(truncatedPersisted, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal truncated relationships: %w", err)
+		}
+
+		log.WithFields(log.Fields{
+			"component":       "graph-cache",
+			"store":           "configmap",
+			"original_count":  totalCount,
+			"truncated_count": keepCount,
+			"final_size":      len(data),
+		}).Info("Truncated relationships to fit ConfigMap size limit")
 	}
 
 	// Create ConfigMap object

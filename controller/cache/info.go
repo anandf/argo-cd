@@ -546,3 +546,21 @@ func generateManifestHash(un *unstructured.Unstructured, ignores []v1alpha1.Reso
 func hash(data []byte) string {
 	return strconv.FormatUint(xxhash.Sum64(data), 16)
 }
+
+// SetManifestHash sets the manifest hash for change-detection purposes.
+func (r *ResourceInfo) SetManifestHash(h string) {
+	r.manifestHash = h
+}
+
+// GenerateManifestHash computes a hash of the resource after normalizing away
+// ignored differences. Used by both traditional and graph caches to detect
+// meaningful resource changes.
+func GenerateManifestHash(un *unstructured.Unstructured, ignores []v1alpha1.ResourceIgnoreDifferences, overrides map[string]v1alpha1.ResourceOverride, opts normalizers.IgnoreNormalizerOpts) (string, error) {
+	return generateManifestHash(un, ignores, overrides, opts)
+}
+
+// ShouldHashManifest returns true if the resource should have a manifest hash
+// computed for change detection.
+func ShouldHashManifest(appName string, gvk schema.GroupVersionKind, un *unstructured.Unstructured) bool {
+	return shouldHashManifest(appName, gvk, un)
+}

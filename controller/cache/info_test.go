@@ -1166,7 +1166,7 @@ func TestGetLinkAnnotatedServiceInfo(t *testing.T) {
 
 func TestMaliciousLinkAnnotatedServiceInfoFiltered(t *testing.T) {
 	info := &ResourceInfo{}
-	populateNodeInfo(testMaliciousLinkAnnotatedService, info, []string{})
+	PopulateNodeInfo(testMaliciousLinkAnnotatedService, info, []string{})
 	require.NotNil(t, info.NetworkingInfo)
 	// Only the http URL should make it through; javascript:, data:, vbscript:,
 	// "title|javascript:..." and scheme-less values must be dropped.

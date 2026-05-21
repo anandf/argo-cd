@@ -147,12 +147,12 @@ func TestGenerateTrackingID(t *testing.T) {
 	// Core group namespaced
 	coreObj := makeTestObj("", "v1", "Pod", "default", "nginx", nil, nil)
 	coreID := generateTrackingID("myapp", coreObj)
-	assert.Equal(t, "myapp:core/Pod:default/nginx", coreID)
+	assert.Equal(t, "myapp:/Pod:default/nginx", coreID)
 
 	// Cluster-scoped
 	clusterObj := makeTestObj("", "v1", "Namespace", "", "kube-system", nil, nil)
 	clusterID := generateTrackingID("myapp", clusterObj)
-	assert.Equal(t, "myapp:core/Namespace:kube-system", clusterID)
+	assert.Equal(t, "myapp:/Namespace:kube-system", clusterID)
 }
 
 func TestDefaultTrackingMethod(t *testing.T) {

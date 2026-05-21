@@ -2,6 +2,7 @@ package graphcache
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
 	kubetesting "k8s.io/client-go/testing"
+
+	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 )
 
 func TestNewGraphCache(t *testing.T) {
@@ -171,7 +174,8 @@ func TestGraphCache_HealthCheck_Healthy(t *testing.T) {
 
 	// Basic checks
 	assert.Equal(t, 1, status.TotalResources)
-	assert.NotZero(t, status.MemoryUsageMB)
+	// With only 1 resource, estimated memory (6KB) rounds to 0 MB — that's expected
+	assert.GreaterOrEqual(t, status.MemoryUsageMB, int64(0))
 
 	// In a fake environment without real watches, we expect it to be unhealthy due to no watches
 	// This is the expected behavior and demonstrates the health check is working
@@ -289,9 +293,18 @@ func TestGraphCache_HealthCheck_MemoryUsage(t *testing.T) {
 	}
 	gc, _ := NewGraphCache(context.Background(), config)
 
+	// Add enough resources so that estimated memory exceeds 1MB
+	for i := 0; i < 200; i++ {
+		gc.graph.AddOrUpdate(&ResourceNode{
+			Key:     kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: fmt.Sprintf("deploy-%d", i)},
+			Version: "v1",
+			UID:     fmt.Sprintf("uid-%d", i),
+		})
+	}
+
 	status := gc.HealthCheck()
 
-	// Memory usage should be reported
+	// 200 resources × 6KB ≈ 1.2MB → MemoryUsageMB should be > 0
 	assert.Greater(t, status.MemoryUsageMB, int64(0), "Memory usage should be greater than 0")
 
 	// For normal test execution, memory should be well under 2GB

@@ -113,23 +113,20 @@ func extractAppNameFromTrackingID(trackingID string) string {
 
 // generateTrackingID generates a tracking ID from resource information.
 // Format: <app-name>:<group>/<kind>:<namespace>/<name>
+// Core API resources use an empty group string to match Argo CD's actual
+// tracking annotation format (e.g. "myapp:/Pod:default/nginx").
 func generateTrackingID(appName string, obj *unstructured.Unstructured) string {
 	gvk := obj.GroupVersionKind()
-
-	group := gvk.Group
-	if group == "" {
-		group = "core"
-	}
 
 	namespace := obj.GetNamespace()
 	name := obj.GetName()
 
 	if namespace != "" {
-		return fmt.Sprintf("%s:%s/%s:%s/%s", appName, group, gvk.Kind, namespace, name)
+		return fmt.Sprintf("%s:%s/%s:%s/%s", appName, gvk.Group, gvk.Kind, namespace, name)
 	}
 
 	// Cluster-scoped resource
-	return fmt.Sprintf("%s:%s/%s:%s", appName, group, gvk.Kind, name)
+	return fmt.Sprintf("%s:%s/%s:%s", appName, gvk.Group, gvk.Kind, name)
 }
 
 // HasArgoTracking is a convenience function to check if a resource has any Argo CD tracking.
@@ -150,8 +147,7 @@ func GetManagedByApp(obj *unstructured.Unstructured, method TrackingMethod) stri
 // BuildLabelSelector builds a label selector for finding resources managed by Argo CD.
 // This is used for initial discovery queries.
 func BuildLabelSelector() string {
-	// Select resources with the app.kubernetes.io/instance label
-	return fmt.Sprintf("%s", LabelKeyAppInstance)
+	return LabelKeyAppInstance
 }
 
 // ParseTrackingMethod converts a string to TrackingMethod.

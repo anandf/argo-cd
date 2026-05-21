@@ -605,3 +605,222 @@ func TestGraphCache_WatchFlapping(t *testing.T) {
 8. Structured logging (observability)
 9. Stress testing (validate scale)
 10. Chaos testing (validate resilience)
+
+
+CRITICAL (Must Fix)
+
+  1. Graph cache enabled by default in Makefile
+
+  Makefile — ARGOCD_ENABLE_GRAPH_CACHE?=true means every make start-local and E2E run uses the experimental cache. The factory itself defaults to false
+  (env.ParseBoolFromEnv(EnvGraphCacheEnabled, false)). This should be ?=false.
+
+  2. Broken test — won't compile
+
+  controller/cache/info_test.go:1169 — populateNodeInfo was renamed to PopulateNodeInfo but one call site was missed. This breaks go test ./controller/cache/....
+
+  3. Cluster sharding completely bypassed
+
+  adapter.go — GraphLiveStateCache has zero reference to ClusterSharding. In a multi-replica deployment, every controller will try to manage every cluster, causing
+  duplicate reconciliation and potential data corruption. The traditional cache's canHandleCluster() gate is entirely missing.
+
+  4. No cluster lifecycle management
+
+  adapter.go Run() — The traditional cache calls db.WatchClusters() to handle cluster add/modify/delete events (credential rotation, namespace changes, cluster removal).
+  The graph cache adapter does none of this — cluster caches are created lazily and never cleaned up.
+
+  5. Race condition on syncOnce/syncedCh in Invalidate()
+
+  adapter.go:1105-1107 — c.syncOnce = sync.Once{} and c.syncedCh = make(chan struct{}) are written without synchronization while EnsureSynced() may concurrently read them.
+   This is a data race on multi-word values.
+
+  6. Race condition on trackingMethod
+
+  graph_cache.go:236 — SetTrackingMethod writes gc.trackingMethod without any lock. Multiple watch goroutines concurrently read this field via addResourceToGraph →
+  ExtractTrackingInfo. Data race under -race.
+
+  7. Race condition on onResourceUpdated callback
+
+  graph_cache.go:1153 — SetResourceUpdateCallback writes the callback without synchronization. Watch goroutines read it at lines 711/745. Data race.
+
+  8. Race condition on WatchHandle.LastEventTime
+
+  watch_manager.go:430 — handle.LastEventTime = time.Now() is written from watch goroutines without any lock. time.Time is a multi-word struct — concurrent reads produce
+  torn values.
+
+  9. Unbounded recursion in propagateAppNameToChildren
+
+  graph_cache.go:534-547 — Recurses through children with no depth limit or visited set. A cycle in OwnerReferences (possible from malformed resources) causes a stack
+  overflow crash. deriveAppNameFromParents correctly uses depth limiting — this method does not.
+
+  10. Stale oldNode pointer in handleResourceEvent
+
+  graph_cache.go:688 — oldNode is a live pointer into the shard map. The subsequent addResourceToGraph mutates the same object in-place via AddOrUpdate. By the time the
+  callback fires, oldNode and newNode point to the same mutated object. The old state must be deep-copied before the update.
+
+  11. List-Watch gap — missed events during discovery
+
+  watch_manager.go:303-327, graph_cache.go:333-358 — ListManagedResources is called separately from EnsureWatch. The watch does not use the ResourceVersion from the list
+  response, so events between list completion and watch establishment are silently lost.
+
+  12. Nil pointer panic on multi-source applications
+
+  manifest_discovery.go:88-98 — Accesses app.Spec.Source.RepoURL without nil-checking. Spec.Source is *ApplicationSource and is nil when Spec.Sources (multi-source) is
+  used. This panics.
+
+  13. Slice aliasing bug in extractPodTemplateReferences
+
+  descendants.go:307,343,347 — append(basePath, "volumes") may reuse the backing array, so the subsequent append(basePath, "containers") corrupts volumePath. Fix with
+  three-index slice: append(basePath[:len(basePath):len(basePath)], "volumes").
+
+  14. Cypher query injection
+
+  cyphernetes.go:156-195 — All query methods interpolate user-controlled resource names/namespaces directly into Cypher strings via fmt.Sprintf with no escaping. A
+  resource name containing ' breaks queries; a crafted name could manipulate query logic.
+
+  ---
+  HIGH
+
+  15. Rollout config returns error with no fallback
+
+  adapter.go:91-94 — When rollout config excludes a cluster, GetClusterCache returns an error. No fallback to the traditional cache exists, so excluded clusters become
+  inaccessible.
+
+  16. GetAllNodes returns live pointers to graph nodes
+
+  types.go — Get, GetAllNodes, GetByApplication, GetChildren, etc. return *ResourceNode pointers directly from shard maps. Callers can mutate fields without holding any
+  lock, causing silent data corruption.
+
+  17. Cross-shard relationship update after shard unlock
+
+  types.go:262-296 — After releasing the shard lock, parent-child edge updates happen without any lock. A concurrent Delete of the same key can leave dangling child
+  references in the parent.
+
+  18. Stale UID index entry on UID change
+
+  types.go:264-268 — When a resource is deleted and recreated with the same name but different UID, the old UID entry in g.uidIndex is never removed.
+
+  19. Silent watcher death with no recovery
+
+  watch_manager.go:360-369 — After MaxConsecutiveFailures, the watcher returns. But WatchHandle stays in the map, so IsTypeWatched still returns true. The system believes
+  it's watching this type but isn't.
+
+  20. Settings manager called on every resource event
+
+  factory.go:197-250 — createPopulateResourceInfoHandler calls GetResourceCustomLabels(), GetResourceOverrides(), GetAppInstanceLabelKey(), GetTrackingMethod(), and
+  GetInstallationID() for every single resource event. The traditional cache caches these. This is a significant performance regression at scale.
+
+  21. ignoreResourceUpdates not implemented
+
+  The traditional cache computes manifest hashes and skips re-queuing when only irrelevant fields change. The graph cache omits this entirely, causing every
+  resourceVersion bump to trigger full app reconciliation.
+
+  22. Snapshot restore loses graph edges depending on insertion order
+
+  graph_cache.go:1042-1092 — SnapshotNode doesn't include Children. If a child is restored before its parent, the parent→child edge is never built.
+
+  23. Tracking ID format mismatch
+
+  tracking.go:121 — Uses "core" as the group for core API resources. Argo CD's actual tracking uses an empty string. IDs like appName:core/Pod:ns/name won't match real
+  tracking annotations.
+
+  24. Naive resource pluralization in FindGVR
+
+  graph_provider.go:191 — strings.ToLower(kind) + "s" is wrong for Ingress → ingresss, NetworkPolicy → networkpolicys, Endpoints → endpointss. Must use API discovery.
+
+  25. nodeToUnstructured drops spec/status
+
+  graph_provider.go:143-162 — Reconstructed objects only have metadata. Cyphernetes queries against spec.* or status.* silently return empty results.
+
+  26. Redis TTL silently ignored
+
+  redis_store.go:33-34 vs 70,136 — RedisStoreConfig.TTL is accepted but never stored or used. All keys use 0 (no expiration), causing unbounded storage growth.
+
+  27. Data race on persistenceCount
+
+  persistence_interface.go:134 — m.persistenceCount++ in Save() and read in GetStats() with no synchronization.
+
+  ---
+  MEDIUM
+
+  28. autoSaveEnabled is a no-op
+
+  persistence_interface.go — The field is stored but Start() never launches a background save goroutine.
+
+  29. Memory metric reports entire process heap
+
+  graph_cache.go:812-814 — runtime.ReadMemStats reports total process memory, not graph cache memory. Attributed as graph_cache_memory_bytes, this is misleading.
+
+  30. discoverResource calls ServerPreferredResources for every GroupKind
+
+  watch_manager.go:457-499 — Called ~12 times in sequence during discovery. Results should be fetched once and reused.
+
+  31. Redis mutex held during network calls
+
+  redis_store.go:51-85 — Save() holds the lock for the entire JSON marshal + Redis SET. A slow Redis blocks all concurrent operations.
+
+  32. RegisterGraphCacheMetrics never called
+
+  controller/metrics/graph_cache_metrics.go — The 12 metric collectors are defined but never registered with Prometheus, so they never appear in /metrics.
+
+  33. app_name label creates high-cardinality metric
+
+  graph_cache_metrics.go:70 — argocd_graph_cache_manifest_discovery_total with app_name label can overwhelm Prometheus in large installations.
+
+  34. gRPC connection leaked in factory
+
+  factory.go:97-100 — NewRepoServerClient() returns a gRPC connection as the first return value, which is discarded as _. This connection is never closed.
+
+  35. ConfigMapStore.Save truncation is linear, not binary search
+
+  configmap_store.go:82-113 — Despite the comment saying "binary search," the algorithm reduces by 10% each iteration. Also, int(float64(1) * 0.9) == 0, causing an abrupt
+  drop to zero relationships.
+
+  36. Watch manager context not derived from parent
+
+  watch_manager.go:92-93 — Uses context.Background(), so canceling the GraphCache context doesn't automatically stop watches.
+
+  37. No handling of projected or ephemeral container volumes
+
+  descendants.go — Projected volumes (containing Secret/ConfigMap sources) and ephemeral containers are not scanned for references.
+
+  38. PVC implicit parent detection uses wrong label
+
+  descendants.go:129-145 — Checks for statefulset.kubernetes.io/pod-name label on PVCs, but this label is only set on Pods. Dead code.
+
+  ---
+  LOW
+
+  39. UpdateShard always returns true — unnecessary reprocessing
+
+  40. BuildLabelSelector uses unnecessary fmt.Sprintf — dead code
+
+  41. isWorkloadResource in manifest_discovery.go — dead code, never called
+
+  42. FindResourcesByPattern hardcodes RETURN n regardless of pattern variable name
+
+  43. extensions/v1beta1 seeded relationships are obsolete (removed in K8s 1.22)
+
+  44. GetClusterInfo doesn't populate Server field
+
+  45. hostname field in GraphCacheMetrics is stored but never used
+
+  46. KubeClientset field in CacheFactoryConfig is declared and populated but never referenced
+
+  ---
+  Summary
+
+  ┌──────────┬───────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │ Severity │ Count │                                                 Key Themes                                                 │
+  ├──────────┼───────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Critical │ 14    │ Data races (4), missing K8s integration (2), crash bugs (3), data loss (3), injection (1), build break (1) │
+  ├──────────┼───────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ High     │ 13    │ Silent failures, performance regressions, data corruption, format mismatches                               │
+  ├──────────┼───────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Medium   │ 11    │ Dead features, misleading metrics, resource leaks, missing coverage                                        │
+  ├──────────┼───────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Low      │ 8     │ Dead code, minor inefficiencies                                                                            │
+  └──────────┴───────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  The most urgent items before any merge: fix the broken test (#2), change the Makefile default (#1), and address the four data races (#5-8) which will fail under -race.
+  The cluster sharding bypass (#3) and missing cluster lifecycle management (#4) make this unsafe for any multi-replica deployment. The unbounded recursion (#9) and nil
+  pointer on multi-source apps (#12) are crash bugs in production paths.

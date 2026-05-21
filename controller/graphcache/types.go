@@ -54,7 +54,8 @@ func DefaultGraphConfig() GraphConfig {
 // ParentRef represents a reference to a parent resource, including UID.
 type ParentRef struct {
 	kube.ResourceKey
-	UID string
+	UID    string
+	Custom bool // true if this edge was created by a custom relationship rule
 }
 
 // ResourceMetadata contains lightweight metadata about a resource.
@@ -95,6 +96,23 @@ type ResourceNode struct {
 	// Metadata
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// shallowCopy returns a shallow copy of the ResourceNode.
+// Scalar and pointer fields are copied by value so callers cannot mutate the
+// live graph node. Slice fields (Parents, Children) get their own backing
+// arrays to prevent append-aliasing.
+func (n *ResourceNode) shallowCopy() *ResourceNode {
+	copied := *n
+	if len(n.Parents) > 0 {
+		copied.Parents = make([]ParentRef, len(n.Parents))
+		copy(copied.Parents, n.Parents)
+	}
+	if len(n.Children) > 0 {
+		copied.Children = make([]kube.ResourceKey, len(n.Children))
+		copy(copied.Children, n.Children)
+	}
+	return &copied
 }
 
 // GraphShard represents a partition of the resource graph to reduce lock contention
@@ -159,16 +177,19 @@ func (g *ResourceGraph) AddOrUpdate(node *ResourceNode) {
 	
 	var oldParents []ParentRef
 	var oldLabels map[string]string
+	var oldUID string
 
 	existing, exists := shard.nodes[node.Key]
 	if exists {
 		node.CreatedAt = existing.CreatedAt
 		node.UpdatedAt = time.Now()
 		// Preserve children from existing node
-		node.Children = existing.Children 
+		node.Children = existing.Children
 		// Capture old parents
 		oldParents = make([]ParentRef, len(existing.Parents))
 		copy(oldParents, existing.Parents)
+		// Capture old UID for index cleanup
+		oldUID = existing.UID
 		// Capture old labels
 		if existing.Info != nil {
 			oldLabels = existing.Info.Labels
@@ -261,11 +282,25 @@ func (g *ResourceGraph) AddOrUpdate(node *ResourceNode) {
 	
 	shard.lock.Unlock()
 
-	// Update UID index
+	// Update UID index, removing stale entry if UID changed (e.g. delete+recreate
+	// with the same name produces a new UID for the same ResourceKey).
+	g.uidIndexLock.Lock()
+	if oldUID != "" && oldUID != node.UID {
+		delete(g.uidIndex, oldUID)
+	}
 	if node.UID != "" {
-		g.uidIndexLock.Lock()
 		g.uidIndex[node.UID] = node.Key
-		g.uidIndexLock.Unlock()
+	}
+	g.uidIndexLock.Unlock()
+
+	// Guard against concurrent Delete: verify the node we stored is still the
+	// current occupant. If a Delete ran between our unlock and now, skip
+	// relationship updates to avoid leaving dangling child references.
+	shard.lock.RLock()
+	currentNode := shard.nodes[node.Key]
+	shard.lock.RUnlock()
+	if currentNode != node {
+		return
 	}
 
 	// Update relationships (cross-shard)
@@ -313,14 +348,17 @@ func (g *ResourceGraph) addChildToParent(parentKey, childKey kube.ResourceKey) {
 	}
 }
 
-// Get retrieves a resource node by its key.
+// Get retrieves a shallow copy of a resource node by its key.
 func (g *ResourceGraph) Get(key kube.ResourceKey) (*ResourceNode, bool) {
 	shard := g.getShard(key)
 	shard.lock.RLock()
 	defer shard.lock.RUnlock()
 
 	node, exists := shard.nodes[key]
-	return node, exists
+	if !exists {
+		return nil, false
+	}
+	return node.shallowCopy(), true
 }
 
 // Delete removes a resource node from the graph and all indices.
@@ -437,17 +475,16 @@ func (g *ResourceGraph) GetByUID(uid string) (*ResourceNode, bool) {
 	return g.Get(key)
 }
 
-// GetByApplication returns all resources managed by a specific application.
+// GetByApplication returns shallow copies of all resources managed by a specific application.
 func (g *ResourceGraph) GetByApplication(appName string) []*ResourceNode {
 	var nodes []*ResourceNode
 
-	// Gather from all shards
 	for _, shard := range g.shards {
 		shard.lock.RLock()
 		if keys, ok := shard.appIndex[appName]; ok {
 			for key := range keys {
 				if node, exists := shard.nodes[key]; exists {
-					nodes = append(nodes, node)
+					nodes = append(nodes, node.shallowCopy())
 				}
 			}
 		}
@@ -457,7 +494,7 @@ func (g *ResourceGraph) GetByApplication(appName string) []*ResourceNode {
 	return nodes
 }
 
-// GetByType returns all resources of a specific GroupKind.
+// GetByType returns shallow copies of all resources of a specific GroupKind.
 func (g *ResourceGraph) GetByType(gk schema.GroupKind) []*ResourceNode {
 	var nodes []*ResourceNode
 
@@ -466,7 +503,7 @@ func (g *ResourceGraph) GetByType(gk schema.GroupKind) []*ResourceNode {
 		if keys, ok := shard.typeIndex[gk]; ok {
 			for key := range keys {
 				if node, exists := shard.nodes[key]; exists {
-					nodes = append(nodes, node)
+					nodes = append(nodes, node.shallowCopy())
 				}
 			}
 		}
@@ -476,7 +513,7 @@ func (g *ResourceGraph) GetByType(gk schema.GroupKind) []*ResourceNode {
 	return nodes
 }
 
-// GetByLabel returns all resources matching a label key and value.
+// GetByLabel returns shallow copies of all resources matching a label key and value.
 func (g *ResourceGraph) GetByLabel(key, value string) []*ResourceNode {
 	var nodes []*ResourceNode
 
@@ -486,7 +523,7 @@ func (g *ResourceGraph) GetByLabel(key, value string) []*ResourceNode {
 			if keys, ok := values[value]; ok {
 				for k := range keys {
 					if node, exists := shard.nodes[k]; exists {
-						nodes = append(nodes, node)
+						nodes = append(nodes, node.shallowCopy())
 					}
 				}
 			}
@@ -568,14 +605,14 @@ func (g *ResourceGraph) GetAllTypes() []schema.GroupKind {
 	return types
 }
 
-// GetAllNodes returns all nodes in the graph.
+// GetAllNodes returns shallow copies of all nodes in the graph.
 func (g *ResourceGraph) GetAllNodes() []*ResourceNode {
 	var nodes []*ResourceNode
 
 	for _, shard := range g.shards {
 		shard.lock.RLock()
 		for _, node := range shard.nodes {
-			nodes = append(nodes, node)
+			nodes = append(nodes, node.shallowCopy())
 		}
 		shard.lock.RUnlock()
 	}

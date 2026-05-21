@@ -3,11 +3,12 @@ package graphcache
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/argoproj/argo-cd/gitops-engine/pkg/cache"
+	clustercache "github.com/argoproj/argo-cd/gitops-engine/pkg/cache"
 	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 	log "github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -24,7 +25,10 @@ import (
 	"k8s.io/kubectl/pkg/util/openapi"
 
 	statecache "github.com/argoproj/argo-cd/v3/controller/cache"
+	"github.com/argoproj/argo-cd/v3/controller/sharding"
 	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/v3/util/db"
+	logutils "github.com/argoproj/argo-cd/v3/util/log"
 	"github.com/argoproj/argo-cd/v3/util/settings"
 )
 
@@ -38,18 +42,15 @@ type GraphLiveStateCache struct {
 	ctx             context.Context
 	store           GraphStore
 	onObjectUpdated statecache.ObjectUpdatedHandler
-	// argocdNamespace is the namespace where ArgoCD is installed.
-	// Used to compute app instance names consistently with the traditional cache.
 	argocdNamespace string
-	// settingsMgr watches for configuration changes (tracking method, health overrides, etc.)
-	settingsMgr *settings.SettingsManager
-	// rolloutConfig controls which clusters use graph cache vs traditional cache.
-	// If nil, all clusters use graph cache (equivalent to "all" strategy).
-	rolloutConfig *RolloutConfig
+	settingsMgr     *settings.SettingsManager
+	db              db.ArgoDB
+	clusterSharding sharding.ClusterShardingCache
+	repoConn        io.Closer
 }
 
 // NewGraphLiveStateCache creates a new adapter that wraps GraphCache
-func NewGraphLiveStateCache(config Config, store GraphStore, onObjectUpdated statecache.ObjectUpdatedHandler, argocdNamespace string, settingsMgr *settings.SettingsManager) *GraphLiveStateCache {
+func NewGraphLiveStateCache(config Config, store GraphStore, onObjectUpdated statecache.ObjectUpdatedHandler, argocdNamespace string, settingsMgr *settings.SettingsManager, database db.ArgoDB, clusterSharding sharding.ClusterShardingCache, repoConn io.Closer) *GraphLiveStateCache {
 	return &GraphLiveStateCache{
 		config:          config,
 		clusterCaches:   make(map[string]*clusterCacheAdapter),
@@ -58,6 +59,9 @@ func NewGraphLiveStateCache(config Config, store GraphStore, onObjectUpdated sta
 		onObjectUpdated: onObjectUpdated,
 		argocdNamespace: argocdNamespace,
 		settingsMgr:     settingsMgr,
+		db:              database,
+		clusterSharding: clusterSharding,
+		repoConn:        repoConn,
 	}
 }
 
@@ -84,13 +88,9 @@ func (a *GraphLiveStateCache) IsNamespaced(cluster *appv1.Cluster, gk schema.Gro
 }
 
 // GetClusterCache returns the cluster cache for a given server.
-// If gradual rollout is configured, checks whether this cluster should use
-// the graph cache based on the rollout strategy.
-func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (cache.ClusterCache, error) {
-	// Check rollout config — if this cluster is not selected, return an error
-	// so the caller falls back to the traditional cache.
-	if a.rolloutConfig != nil && !a.rolloutConfig.ShouldUseGraphCache(cluster.Server) {
-		return nil, fmt.Errorf("cluster %s is not selected for graph cache (rollout strategy: %s)", cluster.Server, a.rolloutConfig.Strategy)
+func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (clustercache.ClusterCache, error) {
+	if !a.canHandleCluster(cluster) {
+		return nil, fmt.Errorf("cluster %s is not managed by this shard", cluster.Server)
 	}
 
 	a.lock.RLock()
@@ -146,6 +146,18 @@ func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (cache.Clu
 		if labelKey, err := a.settingsMgr.GetAppInstanceLabelKey(); err == nil && labelKey != "" {
 			gc.SetAppInstanceLabelKey(labelKey)
 		}
+	}
+
+	// Wire up custom relationship provider from settings
+	if a.settingsMgr != nil {
+		settingsMgr := a.settingsMgr
+		gc.SetCustomRelationshipProvider(func() ([]CustomRelationshipRule, error) {
+			raw, err := settingsMgr.GetResourceRelationshipsRaw()
+			if err != nil {
+				return nil, err
+			}
+			return ParseCustomRelationshipRules(raw)
+		})
 	}
 
 	// Restore from snapshot if available
@@ -243,7 +255,7 @@ func (a *GraphLiveStateCache) GetManagedLiveObjs(cluster *appv1.Cluster, app *ap
 }
 
 // IterateResources iterates over all resources in the cache for a given server
-func (a *GraphLiveStateCache) IterateResources(cluster *appv1.Cluster, callback func(res *cache.Resource, info *statecache.ResourceInfo)) error {
+func (a *GraphLiveStateCache) IterateResources(cluster *appv1.Cluster, callback func(res *clustercache.Resource, info *statecache.ResourceInfo)) error {
 	clusterCache, err := a.GetClusterCache(cluster)
 	if err != nil {
 		return err
@@ -268,12 +280,26 @@ func (a *GraphLiveStateCache) GetNamespaceTopLevelResources(cluster *appv1.Clust
 	return nil, fmt.Errorf("cluster cache does not support GetNamespaceTopLevelResources")
 }
 
-// UpdateShard updates the shard of the cache
+// UpdateShard updates the shard of the cache.
+// When the shard changes, cluster caches for clusters no longer managed by this
+// shard are invalidated and removed.
 func (a *GraphLiveStateCache) UpdateShard(shard int) bool {
-	return true
+	changed := a.clusterSharding.UpdateShard(shard)
+	if changed {
+		a.lock.Lock()
+		for server, cc := range a.clusterCaches {
+			if !a.clusterSharding.IsManagedCluster(&appv1.Cluster{Server: server}) {
+				cc.Invalidate()
+				delete(a.clusterCaches, server)
+				log.Infof("Invalidated cluster cache for %s after shard change", server)
+			}
+		}
+		a.lock.Unlock()
+	}
+	return changed
 }
 
-// Run starts the cache
+// Run starts the cache and watches for cluster changes.
 func (a *GraphLiveStateCache) Run(ctx context.Context) error {
 	a.lock.Lock()
 	a.ctx = ctx
@@ -283,8 +309,89 @@ func (a *GraphLiveStateCache) Run(ctx context.Context) error {
 		go a.watchSettings(ctx)
 	}
 
+	kube.RetryUntilSucceed(ctx, clustercache.ClusterRetryTimeout, "watch clusters", logutils.NewLogrusLogger(logutils.NewWithCurrentConfig()), func() error {
+		return a.db.WatchClusters(ctx, a.handleAddEvent, a.handleModEvent, a.handleDeleteEvent)
+	})
+
 	<-ctx.Done()
+	a.shutdownAllClusters()
 	return nil
+}
+
+func (a *GraphLiveStateCache) canHandleCluster(cluster *appv1.Cluster) bool {
+	return a.clusterSharding.IsManagedCluster(cluster)
+}
+
+func (a *GraphLiveStateCache) handleAddEvent(cluster *appv1.Cluster) {
+	a.clusterSharding.Add(cluster)
+	if !a.canHandleCluster(cluster) {
+		log.Infof("Ignoring cluster %s (not managed by this shard)", cluster.Server)
+		return
+	}
+	a.lock.RLock()
+	_, ok := a.clusterCaches[cluster.Server]
+	a.lock.RUnlock()
+	if !ok {
+		go func() {
+			_, _ = a.GetClusterCache(cluster)
+		}()
+	}
+}
+
+func (a *GraphLiveStateCache) handleModEvent(oldCluster *appv1.Cluster, newCluster *appv1.Cluster) {
+	a.clusterSharding.Update(oldCluster, newCluster)
+	a.lock.RLock()
+	existing, ok := a.clusterCaches[newCluster.Server]
+	a.lock.RUnlock()
+	if ok {
+		if !a.canHandleCluster(newCluster) {
+			existing.Invalidate()
+			a.lock.Lock()
+			delete(a.clusterCaches, newCluster.Server)
+			a.lock.Unlock()
+			return
+		}
+		forceInvalidate := false
+		if newCluster.RefreshRequestedAt != nil {
+			info := existing.GetClusterInfo()
+			if info.LastCacheSyncTime != nil && info.LastCacheSyncTime.Before(newCluster.RefreshRequestedAt.Time) {
+				forceInvalidate = true
+			}
+		}
+		if forceInvalidate {
+			existing.Invalidate()
+			go func() {
+				_ = existing.EnsureSynced()
+			}()
+		}
+	}
+}
+
+func (a *GraphLiveStateCache) handleDeleteEvent(clusterServer string) {
+	a.clusterSharding.Delete(clusterServer)
+	a.lock.Lock()
+	existing, ok := a.clusterCaches[clusterServer]
+	if ok {
+		delete(a.clusterCaches, clusterServer)
+	}
+	a.lock.Unlock()
+	if ok {
+		existing.Invalidate()
+	}
+}
+
+func (a *GraphLiveStateCache) shutdownAllClusters() {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	for server, cc := range a.clusterCaches {
+		cc.Invalidate()
+		delete(a.clusterCaches, server)
+	}
+	if a.repoConn != nil {
+		if err := a.repoConn.Close(); err != nil {
+			log.Warnf("Failed to close repo server connection: %v", err)
+		}
+	}
 }
 
 // watchSettings watches for settings changes and updates the tracking method
@@ -321,7 +428,7 @@ func (a *GraphLiveStateCache) watchSettings(ctx context.Context) {
 			a.config.TrackingMethod = graphMethod
 			for server, clusterCache := range a.clusterCaches {
 				if clusterCache.graphCache != nil {
-					if clusterCache.graphCache.trackingMethod != graphMethod {
+					if clusterCache.graphCache.getTrackingMethod() != graphMethod {
 						log.WithFields(log.Fields{
 							"server":    server,
 							"oldMethod": clusterCache.graphCache.trackingMethod,
@@ -332,6 +439,7 @@ func (a *GraphLiveStateCache) watchSettings(ctx context.Context) {
 					if newLabelKey != "" {
 						clusterCache.graphCache.SetAppInstanceLabelKey(newLabelKey)
 					}
+					clusterCache.graphCache.refreshCustomRelationships()
 				}
 			}
 			a.lock.Unlock()
@@ -359,11 +467,11 @@ func convertTrackingMethod(method string) TrackingMethod {
 }
 
 // GetClustersInfo returns information about all clusters
-func (a *GraphLiveStateCache) GetClustersInfo() []cache.ClusterInfo {
+func (a *GraphLiveStateCache) GetClustersInfo() []clustercache.ClusterInfo {
 	a.lock.RLock()
 	defer a.lock.RUnlock()
 
-	result := make([]cache.ClusterInfo, 0, len(a.clusterCaches))
+	result := make([]clustercache.ClusterInfo, 0, len(a.clusterCaches))
 	for _, clusterCache := range a.clusterCaches {
 		result = append(result, clusterCache.GetClusterInfo())
 	}
@@ -430,8 +538,8 @@ func nodeToResourceNode(node *ResourceNode) appv1.ResourceNode {
 }
 
 // nodeToCacheResource converts a ResourceNode to a gitops-engine cache.Resource
-func nodeToCacheResource(node *ResourceNode) *cache.Resource {
-	res := &cache.Resource{
+func nodeToCacheResource(node *ResourceNode) *clustercache.Resource {
+	res := &clustercache.Resource{
 		Ref: v1.ObjectReference{
 			APIVersion: schema.GroupVersion{Group: node.Key.Group, Version: node.Version}.String(),
 			Kind:       node.Key.Kind,
@@ -459,14 +567,15 @@ type clusterCacheAdapter struct {
 	// Handler management
 	handlersLock            sync.Mutex
 	handlerKey              uint64
-	resourceUpdatedHandlers map[uint64]cache.OnResourceUpdatedHandler
-	eventHandlers           map[uint64]cache.OnEventHandler
-	processEventsHandlers   map[uint64]cache.OnProcessEventsHandler
+	resourceUpdatedHandlers map[uint64]clustercache.OnResourceUpdatedHandler
+	eventHandlers           map[uint64]clustercache.OnEventHandler
+	processEventsHandlers   map[uint64]clustercache.OnProcessEventsHandler
 
 	// Sync state — syncedCh is closed when initial discovery completes
-	synced   atomic.Bool
-	syncedCh chan struct{}
-	syncOnce sync.Once
+	synced    atomic.Bool
+	syncMu    sync.Mutex // Protects syncedCh and syncOnce
+	syncedCh  chan struct{}
+	syncOnce  sync.Once
 
 	// Cached GVK parser (lazy-initialized, cleared on Invalidate)
 	gvkParser     *managedfields.GvkParser
@@ -478,9 +587,9 @@ func newClusterCacheAdapter(gc *GraphCache, server string, onObjectUpdated state
 		graphCache:              gc,
 		server:                  server,
 		argocdNamespace:         argocdNamespace,
-		resourceUpdatedHandlers: make(map[uint64]cache.OnResourceUpdatedHandler),
-		eventHandlers:           make(map[uint64]cache.OnEventHandler),
-		processEventsHandlers:   make(map[uint64]cache.OnProcessEventsHandler),
+		resourceUpdatedHandlers: make(map[uint64]clustercache.OnResourceUpdatedHandler),
+		eventHandlers:           make(map[uint64]clustercache.OnEventHandler),
+		processEventsHandlers:   make(map[uint64]clustercache.OnProcessEventsHandler),
 		syncedCh:                make(chan struct{}),
 	}
 	// synced starts as false — will be signaled after Start() completes
@@ -491,7 +600,7 @@ func newClusterCacheAdapter(gc *GraphCache, server string, onObjectUpdated state
 		adapter.notifyEvent(eventType, obj)
 
 		// Build cache.Resource for OnResourceUpdated handlers
-		var newCacheRes, oldCacheRes *cache.Resource
+		var newCacheRes, oldCacheRes *clustercache.Resource
 		if newRes != nil {
 			newCacheRes = nodeToCacheResource(newRes)
 		}
@@ -507,9 +616,9 @@ func newClusterCacheAdapter(gc *GraphCache, server string, onObjectUpdated state
 			ns = oldRes.Key.Namespace
 		}
 
-		var nsResources map[kube.ResourceKey]*cache.Resource
+		var nsResources map[kube.ResourceKey]*clustercache.Resource
 		if ns != "" && gc.graph != nil {
-			nsResources = make(map[kube.ResourceKey]*cache.Resource)
+			nsResources = make(map[kube.ResourceKey]*clustercache.Resource)
 			allNodes := gc.graph.GetAllNodes()
 			for _, node := range allNodes {
 				if node.Key.Namespace == ns {
@@ -636,17 +745,25 @@ func (c *clusterCacheAdapter) IsNamespaced(gk schema.GroupKind) (bool, error) {
 }
 
 // GetClusterInfo returns cluster information
-func (c *clusterCacheAdapter) GetClusterInfo() cache.ClusterInfo {
+func (c *clusterCacheAdapter) GetClusterInfo() clustercache.ClusterInfo {
 	if c.graphCache == nil {
-		return cache.ClusterInfo{}
+		return clustercache.ClusterInfo{Server: c.server}
 	}
 	metrics := c.graphCache.GetMetrics()
 
-	return cache.ClusterInfo{
+	info := clustercache.ClusterInfo{
+		Server:         c.server,
 		ResourcesCount: metrics.TotalManagedResources,
 		APIsCount:      metrics.ActiveWatches,
 		K8SVersion:     c.GetServerVersion(),
 	}
+
+	if !metrics.LastDiscoveryTime.IsZero() {
+		t := metrics.LastDiscoveryTime
+		info.LastCacheSyncTime = &t
+	}
+
+	return info
 }
 
 // IterateHierarchy executes the callback for each resource in the hierarchy starting from the given key
@@ -709,17 +826,17 @@ func (c *clusterCacheAdapter) iterateHierarchyRecursiveSkipMissing(key kube.Reso
 // IterateHierarchyV2 iterates resource tree starting from the specified top level resources
 // and provides namespace resources to the callback for context.
 // Handles both within-namespace and cross-namespace parent-child relationships.
-func (c *clusterCacheAdapter) IterateHierarchyV2(keys []kube.ResourceKey, action func(resource *cache.Resource, namespaceResources map[kube.ResourceKey]*cache.Resource) bool) {
+func (c *clusterCacheAdapter) IterateHierarchyV2(keys []kube.ResourceKey, action func(resource *clustercache.Resource, namespaceResources map[kube.ResourceKey]*clustercache.Resource) bool) {
 	// Build namespace resource maps lazily
-	nsResourceCache := make(map[string]map[kube.ResourceKey]*cache.Resource)
-	getNsResources := func(namespace string) map[kube.ResourceKey]*cache.Resource {
+	nsResourceCache := make(map[string]map[kube.ResourceKey]*clustercache.Resource)
+	getNsResources := func(namespace string) map[kube.ResourceKey]*clustercache.Resource {
 		if namespace == "" {
 			return nil
 		}
 		if cached, ok := nsResourceCache[namespace]; ok {
 			return cached
 		}
-		nsMap := make(map[kube.ResourceKey]*cache.Resource)
+		nsMap := make(map[kube.ResourceKey]*clustercache.Resource)
 		allNodes := c.graphCache.graph.GetAllNodes()
 		for _, node := range allNodes {
 			if node.Key.Namespace == namespace {
@@ -922,7 +1039,7 @@ func (c *clusterCacheAdapter) fetchResourceFromAPI(key kube.ResourceKey) (*unstr
 // Uses a two-phase approach matching the traditional gitops-engine cache:
 // Phase 1: Collect root managed resources from cache using the isManaged predicate.
 // Phase 2: For each targetObj not found, fetch from API and auto-discover the type.
-func (c *clusterCacheAdapter) GetManagedLiveObjs(targetObjs []*unstructured.Unstructured, isManaged func(r *cache.Resource) bool) (map[kube.ResourceKey]*unstructured.Unstructured, error) {
+func (c *clusterCacheAdapter) GetManagedLiveObjs(targetObjs []*unstructured.Unstructured, isManaged func(r *clustercache.Resource) bool) (map[kube.ResourceKey]*unstructured.Unstructured, error) {
 	// Validate namespace management
 	for _, obj := range targetObjs {
 		ns := obj.GetNamespace()
@@ -971,7 +1088,7 @@ func (c *clusterCacheAdapter) GetManagedLiveObjs(targetObjs []*unstructured.Unst
 }
 
 // IterateResources iterates over all resources in the cache
-func (c *clusterCacheAdapter) IterateResources(callback func(res *cache.Resource, info *statecache.ResourceInfo)) error {
+func (c *clusterCacheAdapter) IterateResources(callback func(res *clustercache.Resource, info *statecache.ResourceInfo)) error {
 	allResources := c.graphCache.graph.GetAllNodes()
 
 	for _, node := range allResources {
@@ -1010,16 +1127,18 @@ func (c *clusterCacheAdapter) GetNamespaceTopLevelResources(namespace string) (m
 // EnsureSynced blocks until the cache is synced (initial discovery complete).
 // Returns error if sync doesn't complete within 30 seconds.
 func (c *clusterCacheAdapter) EnsureSynced() error {
-	// Fast path: already synced
 	if c.synced.Load() {
 		return nil
 	}
 
-	// Block until sync completes or timeout
+	c.syncMu.Lock()
+	ch := c.syncedCh
+	c.syncMu.Unlock()
+
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
 	select {
-	case <-c.syncedCh:
+	case <-ch:
 		return nil
 	case <-timer.C:
 		return fmt.Errorf("timeout waiting for cache sync for cluster %s", c.server)
@@ -1028,6 +1147,8 @@ func (c *clusterCacheAdapter) EnsureSynced() error {
 
 // markSynced signals that initial sync is complete. Safe to call multiple times.
 func (c *clusterCacheAdapter) markSynced() {
+	c.syncMu.Lock()
+	defer c.syncMu.Unlock()
 	c.syncOnce.Do(func() {
 		c.synced.Store(true)
 		close(c.syncedCh)
@@ -1095,16 +1216,18 @@ func (c *clusterCacheAdapter) GetGVKParser() *managedfields.GvkParser {
 // Note: UpdateSettingsFunc options are designed for the gitops-engine clusterCache
 // and cannot be directly applied. Settings changes should be handled at the
 // GraphLiveStateCache level by re-creating the adapter.
-func (c *clusterCacheAdapter) Invalidate(opts ...cache.UpdateSettingsFunc) {
+func (c *clusterCacheAdapter) Invalidate(opts ...clustercache.UpdateSettingsFunc) {
 	if len(opts) > 0 {
 		log.WithField("component", "graph-cache").
 			Warn("Invalidate called with UpdateSettingsFunc options which are not supported by graph cache adapter")
 	}
 
-	// Reset sync state
+	// Reset sync state under lock to prevent races with EnsureSynced/markSynced
+	c.syncMu.Lock()
 	c.synced.Store(false)
-	c.syncOnce = sync.Once{} // Reset so markSynced can be called again
+	c.syncOnce = sync.Once{}
 	c.syncedCh = make(chan struct{})
+	c.syncMu.Unlock()
 
 	// Stop all watches
 	if c.graphCache != nil && c.graphCache.watchManager != nil {
@@ -1126,8 +1249,8 @@ func (c *clusterCacheAdapter) Invalidate(opts ...cache.UpdateSettingsFunc) {
 }
 
 // FindResources finds resources matching the given predicates
-func (c *clusterCacheAdapter) FindResources(namespace string, predicates ...func(r *cache.Resource) bool) map[kube.ResourceKey]*cache.Resource {
-	result := make(map[kube.ResourceKey]*cache.Resource)
+func (c *clusterCacheAdapter) FindResources(namespace string, predicates ...func(r *clustercache.Resource) bool) map[kube.ResourceKey]*clustercache.Resource {
+	result := make(map[kube.ResourceKey]*clustercache.Resource)
 	allNodes := c.graphCache.graph.GetAllNodes()
 
 	for _, node := range allNodes {
@@ -1154,7 +1277,7 @@ func (c *clusterCacheAdapter) FindResources(namespace string, predicates ...func
 
 // OnResourceUpdated registers a handler that is called when a resource is updated in the cache.
 // Returns an unsubscribe function to remove the handler.
-func (c *clusterCacheAdapter) OnResourceUpdated(handler cache.OnResourceUpdatedHandler) cache.Unsubscribe {
+func (c *clusterCacheAdapter) OnResourceUpdated(handler clustercache.OnResourceUpdatedHandler) clustercache.Unsubscribe {
 	c.handlersLock.Lock()
 	defer c.handlersLock.Unlock()
 
@@ -1171,7 +1294,7 @@ func (c *clusterCacheAdapter) OnResourceUpdated(handler cache.OnResourceUpdatedH
 
 // OnEvent registers a handler that is called for every Kubernetes watch event.
 // Returns an unsubscribe function to remove the handler.
-func (c *clusterCacheAdapter) OnEvent(handler cache.OnEventHandler) cache.Unsubscribe {
+func (c *clusterCacheAdapter) OnEvent(handler clustercache.OnEventHandler) clustercache.Unsubscribe {
 	c.handlersLock.Lock()
 	defer c.handlersLock.Unlock()
 
@@ -1188,7 +1311,7 @@ func (c *clusterCacheAdapter) OnEvent(handler cache.OnEventHandler) cache.Unsubs
 
 // OnProcessEventsHandler registers a handler that is called when events are processed.
 // Returns an unsubscribe function to remove the handler.
-func (c *clusterCacheAdapter) OnProcessEventsHandler(handler cache.OnProcessEventsHandler) cache.Unsubscribe {
+func (c *clusterCacheAdapter) OnProcessEventsHandler(handler clustercache.OnProcessEventsHandler) clustercache.Unsubscribe {
 	c.handlersLock.Lock()
 	defer c.handlersLock.Unlock()
 
@@ -1205,9 +1328,9 @@ func (c *clusterCacheAdapter) OnProcessEventsHandler(handler cache.OnProcessEven
 
 // notifyResourceUpdated calls all registered OnResourceUpdated handlers.
 // Called by the graph cache when a resource changes.
-func (c *clusterCacheAdapter) notifyResourceUpdated(newRes *cache.Resource, oldRes *cache.Resource, nsResources map[kube.ResourceKey]*cache.Resource) {
+func (c *clusterCacheAdapter) notifyResourceUpdated(newRes *clustercache.Resource, oldRes *clustercache.Resource, nsResources map[kube.ResourceKey]*clustercache.Resource) {
 	c.handlersLock.Lock()
-	handlers := make([]cache.OnResourceUpdatedHandler, 0, len(c.resourceUpdatedHandlers))
+	handlers := make([]clustercache.OnResourceUpdatedHandler, 0, len(c.resourceUpdatedHandlers))
 	for _, h := range c.resourceUpdatedHandlers {
 		handlers = append(handlers, h)
 	}
@@ -1221,7 +1344,7 @@ func (c *clusterCacheAdapter) notifyResourceUpdated(newRes *cache.Resource, oldR
 // notifyEvent calls all registered OnEvent handlers.
 func (c *clusterCacheAdapter) notifyEvent(eventType watch.EventType, un *unstructured.Unstructured) {
 	c.handlersLock.Lock()
-	handlers := make([]cache.OnEventHandler, 0, len(c.eventHandlers))
+	handlers := make([]clustercache.OnEventHandler, 0, len(c.eventHandlers))
 	for _, h := range c.eventHandlers {
 		handlers = append(handlers, h)
 	}

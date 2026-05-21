@@ -387,6 +387,12 @@ func skipAppRequeuing(key kube.ResourceKey) bool {
 	return ignoredRefreshResources[key.Group+"/"+key.Kind]
 }
 
+// SkipResourceUpdate returns true if the resource update can be safely ignored
+// because neither health status nor manifest content changed.
+func SkipResourceUpdate(oldInfo, newInfo *ResourceInfo) bool {
+	return skipResourceUpdate(oldInfo, newInfo)
+}
+
 func skipResourceUpdate(oldInfo, newInfo *ResourceInfo) bool {
 	if oldInfo == nil || newInfo == nil {
 		return false

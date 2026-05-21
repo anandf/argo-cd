@@ -16,6 +16,7 @@ import (
 type RedisStore struct {
 	client *redis.Client
 	key    string
+	ttl    time.Duration
 
 	mu        sync.Mutex
 	lastSaved time.Time
@@ -43,15 +44,13 @@ func NewRedisStore(config RedisStoreConfig) *RedisStore {
 	return &RedisStore{
 		client: config.Client,
 		key:    config.Key,
+		ttl:    config.TTL,
 	}
 }
 
 // Save persists relationships to Redis
 func (s *RedisStore) Save(relationships []PersistedRelationship, metadata PersistedRelationshipMetadata) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Create persisted structure
+	// Marshal outside the lock — this is pure computation, no shared state.
 	persisted := PersistedRelationships{
 		Version:       "v1",
 		LastUpdated:   time.Now(),
@@ -59,27 +58,30 @@ func (s *RedisStore) Save(relationships []PersistedRelationship, metadata Persis
 		Metadata:      metadata,
 	}
 
-	// Marshal to JSON
 	data, err := json.Marshal(persisted)
 	if err != nil {
 		return fmt.Errorf("failed to marshal relationships: %w", err)
 	}
 
-	// Save to Redis
+	// Network call outside the lock.
 	ctx := context.Background()
-	if err := s.client.Set(ctx, s.key, data, 0).Err(); err != nil {
+	if err := s.client.Set(ctx, s.key, data, s.ttl).Err(); err != nil {
 		return fmt.Errorf("failed to save to redis: %w", err)
 	}
 
+	// Only hold the lock for bookkeeping.
+	s.mu.Lock()
 	s.lastSaved = time.Now()
 	s.saveCount++
+	saveCount := s.saveCount
+	s.mu.Unlock()
 
 	log.WithFields(log.Fields{
 		"component":  "graph-cache",
 		"store":      "redis",
 		"key":        s.key,
 		"size_bytes": len(data),
-		"save_count": s.saveCount,
+		"save_count": saveCount,
 	}).Debug("Saved relationships to Redis")
 
 	return nil
@@ -87,9 +89,7 @@ func (s *RedisStore) Save(relationships []PersistedRelationship, metadata Persis
 
 // Load retrieves relationships from Redis
 func (s *RedisStore) Load() ([]PersistedRelationship, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// Network call outside the lock.
 	ctx := context.Background()
 	data, err := s.client.Get(ctx, s.key).Bytes()
 	if err != nil {
@@ -132,8 +132,7 @@ func (s *RedisStore) SaveSnapshot(clusterServer string, snapshot *GraphSnapshot)
 	}
 
 	ctx := context.Background()
-	// Use explicit TTL or default? Using same TTL as main key.
-	if err := s.client.Set(ctx, key, data, 0).Err(); err != nil {
+	if err := s.client.Set(ctx, key, data, s.ttl).Err(); err != nil {
 		return fmt.Errorf("failed to save snapshot to redis: %w", err)
 	}
 	

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -43,6 +44,11 @@ type SelectiveWatchManager struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// Cached API discovery results
+	discoveryLock          sync.RWMutex
+	cachedAPIResources     []*metav1.APIResourceList
+	cachedAPIResourcesTime time.Time
+
 	// Metrics
 	metricsLock sync.RWMutex
 	metrics     WatchMetrics
@@ -52,11 +58,11 @@ type SelectiveWatchManager struct {
 type WatchHandle struct {
 	GroupKind     schema.GroupKind
 	Namespaces    []string // Initial configured namespaces
-	Cancel        context.CancelFunc
-	ResourceCount int // Number of resources watched
-	StartTime     time.Time
-	LastEventTime time.Time
-	IsNamespaced  bool
+	Cancel         context.CancelFunc
+	ResourceCount  int // Number of resources watched
+	StartTime      time.Time
+	lastEventNanos atomic.Int64 // Unix nano timestamp of last event, use SetLastEventTime/GetLastEventTime
+	IsNamespaced   bool
 
 	// Dynamic namespace tracking
 	watchedNamespaces map[string]bool
@@ -65,6 +71,20 @@ type WatchHandle struct {
 	// Store GVR and Context for extension
 	gvr schema.GroupVersionResource
 	ctx context.Context
+}
+
+// SetLastEventTime records the time of the last event.
+func (h *WatchHandle) SetLastEventTime(t time.Time) {
+	h.lastEventNanos.Store(t.UnixNano())
+}
+
+// GetLastEventTime returns the time of the last event.
+func (h *WatchHandle) GetLastEventTime() time.Time {
+	nanos := h.lastEventNanos.Load()
+	if nanos == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nanos)
 }
 
 // ResourceEventHandler is called when a resource event occurs.
@@ -81,7 +101,9 @@ type WatchMetrics struct {
 }
 
 // NewSelectiveWatchManager creates a new selective watch manager.
+// The provided parent context controls the lifecycle of all watches.
 func NewSelectiveWatchManager(
+	parentCtx context.Context,
 	dynamicClient dynamic.Interface,
 	discoveryClient discovery.DiscoveryInterface,
 	trackingMethod TrackingMethod,
@@ -89,7 +111,10 @@ func NewSelectiveWatchManager(
 	handler ResourceEventHandler,
 	graphConfig GraphConfig,
 ) *SelectiveWatchManager {
-	ctx, cancel := context.WithCancel(context.Background())
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	return &SelectiveWatchManager{
 		dynamicClient:   dynamicClient,
@@ -110,8 +135,10 @@ func NewSelectiveWatchManager(
 
 // EnsureWatch ensures a watch exists for the given resource type.
 // If a watch already exists, this is a no-op unless namespace is provided and not yet watched.
+// resourceVersion, if non-empty, is used as the starting point for the watch to avoid
+// missing events between a prior List and this Watch call.
 // Returns true if a new watch (or new namespace watch) was created.
-func (wm *SelectiveWatchManager) EnsureWatch(gk schema.GroupKind, namespace string) (bool, error) {
+func (wm *SelectiveWatchManager) EnsureWatch(gk schema.GroupKind, namespace string, resourceVersion ...string) (bool, error) {
 	wm.watchLock.Lock()
 	defer wm.watchLock.Unlock()
 
@@ -130,8 +157,13 @@ func (wm *SelectiveWatchManager) EnsureWatch(gk schema.GroupKind, namespace stri
 		return false, fmt.Errorf("failed to discover resource %s: %w", gk, err)
 	}
 
+	rv := ""
+	if len(resourceVersion) > 0 {
+		rv = resourceVersion[0]
+	}
+
 	// Create watch
-	handle, err := wm.createWatch(gk, gvr, isNamespaced, namespace)
+	handle, err := wm.createWatch(gk, gvr, isNamespaced, namespace, rv)
 	if err != nil {
 		return false, fmt.Errorf("failed to create watch for %s: %w", gk, err)
 	}
@@ -182,6 +214,32 @@ func (wm *SelectiveWatchManager) RemoveWatch(gk schema.GroupKind) {
 		"group":     gk.Group,
 		"kind":      gk.Kind,
 	}).Info("Removed watch for resource type")
+}
+
+// removeDeadWatch removes a watch that has exceeded max consecutive failures.
+// This ensures IsTypeWatched returns false so future EnsureWatch calls can retry.
+func (wm *SelectiveWatchManager) removeDeadWatch(gk schema.GroupKind) {
+	wm.watchLock.Lock()
+	defer wm.watchLock.Unlock()
+
+	handle, exists := wm.watches[gk]
+	if !exists {
+		return
+	}
+
+	handle.Cancel()
+	delete(wm.watches, gk)
+
+	wm.metricsLock.Lock()
+	wm.metrics.ActiveWatches--
+	delete(wm.metrics.WatchesByType, gk)
+	wm.metricsLock.Unlock()
+
+	log.WithFields(log.Fields{
+		"component": "graph-cache",
+		"group":     gk.Group,
+		"kind":      gk.Kind,
+	}).Warn("Watch removed after exceeding max consecutive failures")
 }
 
 // GetActiveWatches returns the list of currently active watches.
@@ -262,12 +320,8 @@ func (wm *SelectiveWatchManager) extendWatch(handle *WatchHandle, namespace stri
 		return false, nil // Already watching this namespace
 	}
 
-	// Watch all resources without label selectors. See createWatch for rationale.
-	listOpts := metav1.ListOptions{
-		Watch: true,
-	}
+	listOpts := metav1.ListOptions{}
 
-	// Start watcher using handle's context (so it gets cancelled with handle)
 	go wm.startWatcher(handle.ctx, handle.gvr, namespace, listOpts, handle)
 	
 	handle.watchedNamespaces[namespace] = true
@@ -277,7 +331,8 @@ func (wm *SelectiveWatchManager) extendWatch(handle *WatchHandle, namespace stri
 }
 
 // createWatch creates a watch for the specified resource type.
-func (wm *SelectiveWatchManager) createWatch(gk schema.GroupKind, gvr schema.GroupVersionResource, isNamespaced bool, extraNamespace string) (*WatchHandle, error) {
+// If resourceVersion is non-empty, the watch starts from that version for List-Watch consistency.
+func (wm *SelectiveWatchManager) createWatch(gk schema.GroupKind, gvr schema.GroupVersionResource, isNamespaced bool, extraNamespace string, resourceVersion string) (*WatchHandle, error) {
 	ctx, cancel := context.WithCancel(wm.ctx)
 
 	handle := &WatchHandle{
@@ -291,13 +346,9 @@ func (wm *SelectiveWatchManager) createWatch(gk schema.GroupKind, gvr schema.Gro
 		ctx:               ctx,
 	}
 
-	// Watch all resources of this type without label selectors.
-	// The graph cache's selectiveness comes from watching only specific resource
-	// *types* (not all 50+ types like the traditional cache), not from filtering
-	// within a type. Label selectors would miss resources tracked by annotation,
-	// custom labels, or "extra" resources created directly by users.
-	listOpts := metav1.ListOptions{
-		Watch: true,
+	listOpts := metav1.ListOptions{}
+	if resourceVersion != "" {
+		listOpts.ResourceVersion = resourceVersion
 	}
 
 	// Start watches based on scope
@@ -359,12 +410,13 @@ func (wm *SelectiveWatchManager) startWatcher(ctx context.Context, gvr schema.Gr
 		// Goroutine leak protection: stop after too many consecutive failures
 		if consecutiveFailures >= maxConsecutiveFailures {
 			log.WithFields(log.Fields{
-				"component":          "graph-cache",
-				"group":              handle.GroupKind.Group,
-				"kind":               handle.GroupKind.Kind,
-				"namespace":          namespace,
-				"consecutive_fails":  consecutiveFailures,
+				"component":         "graph-cache",
+				"group":             handle.GroupKind.Group,
+				"kind":              handle.GroupKind.Kind,
+				"namespace":         namespace,
+				"consecutive_fails": consecutiveFailures,
 			}).Error("Max consecutive watch failures exceeded, stopping watcher to prevent goroutine leak")
+			wm.removeDeadWatch(handle.GroupKind)
 			return
 		}
 
@@ -427,7 +479,7 @@ func (wm *SelectiveWatchManager) startWatcher(ctx context.Context, gvr schema.Gr
 					}
 
 					// Update metrics
-					handle.LastEventTime = time.Now()
+					handle.SetLastEventTime(time.Now())
 					wm.metricsLock.Lock()
 					wm.metrics.TotalEvents++
 					wm.metrics.EventsByType[event.Type]++
@@ -464,12 +516,7 @@ func (wm *SelectiveWatchManager) discoverResource(gk schema.GroupKind) (schema.G
 		wm.metricsLock.Unlock()
 	}()
 
-	// Get API resources
-	apiResourceLists, err := wm.discoveryClient.ServerPreferredResources()
-	if err != nil {
-		// Partial errors are common and acceptable
-		log.WithError(err).Debug("Partial error during API discovery")
-	}
+	apiResourceLists := wm.getCachedAPIResources()
 
 	// Find matching resource
 	for _, apiResourceList := range apiResourceLists {
@@ -498,32 +545,68 @@ func (wm *SelectiveWatchManager) discoverResource(gk schema.GroupKind) (schema.G
 	return schema.GroupVersionResource{}, false, fmt.Errorf("resource %s not found", gk)
 }
 
+const apiResourceCacheTTL = 2 * time.Minute
+
+func (wm *SelectiveWatchManager) getCachedAPIResources() []*metav1.APIResourceList {
+	wm.discoveryLock.RLock()
+	if wm.cachedAPIResources != nil && time.Since(wm.cachedAPIResourcesTime) < apiResourceCacheTTL {
+		result := wm.cachedAPIResources
+		wm.discoveryLock.RUnlock()
+		return result
+	}
+	wm.discoveryLock.RUnlock()
+
+	wm.discoveryLock.Lock()
+	defer wm.discoveryLock.Unlock()
+
+	// Double-check after acquiring write lock
+	if wm.cachedAPIResources != nil && time.Since(wm.cachedAPIResourcesTime) < apiResourceCacheTTL {
+		return wm.cachedAPIResources
+	}
+
+	apiResourceLists, err := wm.discoveryClient.ServerPreferredResources()
+	if err != nil {
+		log.WithError(err).Debug("Partial error during API discovery")
+	}
+	wm.cachedAPIResources = apiResourceLists
+	wm.cachedAPIResourcesTime = time.Now()
+	return apiResourceLists
+}
+
+// InvalidateAPIResourceCache forces the next discoverResource call to re-fetch API resources.
+func (wm *SelectiveWatchManager) InvalidateAPIResourceCache() {
+	wm.discoveryLock.Lock()
+	defer wm.discoveryLock.Unlock()
+	wm.cachedAPIResources = nil
+}
+
 // ListManagedResources performs an initial list of all resources with Argo CD tracking.
-// This is used for initial discovery before watches are established.
-func (wm *SelectiveWatchManager) ListManagedResources(gvr schema.GroupVersionResource, isNamespaced bool) ([]*unstructured.Unstructured, error) {
-	// List all resources of this type without label selectors.
-	// See createWatch for rationale.
+// Returns the resources and the latest ResourceVersion for establishing a consistent watch.
+func (wm *SelectiveWatchManager) ListManagedResources(gvr schema.GroupVersionResource, isNamespaced bool) ([]*unstructured.Unstructured, string, error) {
 	listOpts := metav1.ListOptions{}
 
 	var result []*unstructured.Unstructured
+	var latestRV string
 
 	if isNamespaced {
 		if len(wm.namespaces) == 0 {
-			// List across all namespaces
 			list, err := wm.dynamicClient.Resource(gvr).List(wm.ctx, listOpts)
 			if err != nil {
-				return nil, err
+				return nil, "", err
 			}
+			latestRV = list.GetResourceVersion()
 			for i := range list.Items {
 				result = append(result, &list.Items[i])
 			}
 		} else {
-			// List in specific namespaces
 			for _, ns := range wm.namespaces {
 				list, err := wm.dynamicClient.Resource(gvr).Namespace(ns).List(wm.ctx, listOpts)
 				if err != nil {
 					log.WithError(err).WithField("namespace", ns).Warn("Failed to list resources in namespace")
 					continue
+				}
+				if list.GetResourceVersion() > latestRV {
+					latestRV = list.GetResourceVersion()
 				}
 				for i := range list.Items {
 					result = append(result, &list.Items[i])
@@ -531,17 +614,17 @@ func (wm *SelectiveWatchManager) ListManagedResources(gvr schema.GroupVersionRes
 			}
 		}
 	} else {
-		// Cluster-scoped resource
 		list, err := wm.dynamicClient.Resource(gvr).List(wm.ctx, listOpts)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
+		latestRV = list.GetResourceVersion()
 		for i := range list.Items {
 			result = append(result, &list.Items[i])
 		}
 	}
 
-	return result, nil
+	return result, latestRV, nil
 }
 
 // ListAllResources lists all resources of a type without label selectors.
@@ -638,10 +721,7 @@ func (wm *SelectiveWatchManager) createWatchWithoutLabelSelector(gk schema.Group
 		ctx:               ctx,
 	}
 
-	// No label selector — watch all resources of this type
-	listOpts := metav1.ListOptions{
-		Watch: true,
-	}
+	listOpts := metav1.ListOptions{}
 
 	if isNamespaced {
 		if len(wm.namespaces) == 0 {

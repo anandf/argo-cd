@@ -67,7 +67,7 @@ var (
 			Name: "argocd_graph_cache_manifest_discovery_total",
 			Help: "Total number of manifest discovery operations",
 		},
-		[]string{"server", "app_name", "status"},
+		[]string{"server", "status"},
 	)
 
 	// graphCachePersistenceOperations tracks persistence save/load operations
@@ -86,25 +86,6 @@ var (
 			Help: "Number of resource type relationships learned by the graph cache",
 		},
 		[]string{"confidence_level"},
-	)
-
-	// graphCacheCyphernetesQueries tracks Cyphernetes query executions
-	graphCacheCyphernetesQueries = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "argocd_graph_cache_cyphernetes_queries_total",
-			Help: "Total number of Cyphernetes queries executed",
-		},
-		[]string{"query_type", "status"},
-	)
-
-	// graphCacheCyphernetesQueryDuration tracks Cyphernetes query execution time
-	graphCacheCyphernetesQueryDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "argocd_graph_cache_cyphernetes_query_duration_seconds",
-			Help:    "Duration of Cyphernetes query execution",
-			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2},
-		},
-		[]string{"query_type"},
 	)
 
 	// graphCacheResourceRefreshes tracks resource refresh operations
@@ -128,21 +109,20 @@ func RegisterGraphCacheMetrics(registry *prometheus.Registry) {
 	registry.MustRegister(graphCacheManifestDiscovery)
 	registry.MustRegister(graphCachePersistenceOperations)
 	registry.MustRegister(graphCacheRelationshipsLearned)
-	registry.MustRegister(graphCacheCyphernetesQueries)
-	registry.MustRegister(graphCacheCyphernetesQueryDuration)
 	registry.MustRegister(graphCacheResourceRefreshes)
 }
 
 // GraphCacheMetrics provides methods to update graph cache metrics
-type GraphCacheMetrics struct {
-	hostname string
-}
+type GraphCacheMetrics struct{}
 
-// NewGraphCacheMetrics creates a new GraphCacheMetrics instance
-func NewGraphCacheMetrics(hostname string) *GraphCacheMetrics {
-	return &GraphCacheMetrics{
-		hostname: hostname,
+// NewGraphCacheMetrics creates a new GraphCacheMetrics instance and registers
+// all graph cache metrics with the provided registry. If registry is nil,
+// metrics are not registered.
+func NewGraphCacheMetrics(registry *prometheus.Registry) *GraphCacheMetrics {
+	if registry != nil {
+		RegisterGraphCacheMetrics(registry)
 	}
+	return &GraphCacheMetrics{}
 }
 
 // SetTotalResources sets the total number of resources in cache
@@ -176,8 +156,8 @@ func (m *GraphCacheMetrics) ObserveQueryDuration(server, queryType string, durat
 }
 
 // IncManifestDiscovery increments the manifest discovery counter
-func (m *GraphCacheMetrics) IncManifestDiscovery(server, appName, status string) {
-	graphCacheManifestDiscovery.WithLabelValues(server, appName, status).Inc()
+func (m *GraphCacheMetrics) IncManifestDiscovery(server, status string) {
+	graphCacheManifestDiscovery.WithLabelValues(server, status).Inc()
 }
 
 // IncPersistenceOperation increments the persistence operation counter
@@ -188,16 +168,6 @@ func (m *GraphCacheMetrics) IncPersistenceOperation(operation, status string) {
 // SetRelationshipsLearned sets the number of learned relationships
 func (m *GraphCacheMetrics) SetRelationshipsLearned(confidenceLevel string, count int) {
 	graphCacheRelationshipsLearned.WithLabelValues(confidenceLevel).Set(float64(count))
-}
-
-// IncCyphernetesQuery increments the Cyphernetes query counter
-func (m *GraphCacheMetrics) IncCyphernetesQuery(queryType, status string) {
-	graphCacheCyphernetesQueries.WithLabelValues(queryType, status).Inc()
-}
-
-// ObserveCyphernetesQueryDuration records a Cyphernetes query duration
-func (m *GraphCacheMetrics) ObserveCyphernetesQueryDuration(queryType string, duration float64) {
-	graphCacheCyphernetesQueryDuration.WithLabelValues(queryType).Observe(duration)
 }
 
 // IncResourceRefresh increments the resource refresh counter

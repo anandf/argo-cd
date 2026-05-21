@@ -335,7 +335,6 @@ func NewApplicationController(
 		OnObjectUpdated:       ctrl.handleObjectUpdated,
 		ClusterSharding:       clusterSharding,
 		ResourceTracking:      argo.NewResourceTracking(),
-		KubeClientset:         kubeClientset,
 		RepoServerClient:      repoClientset,
 		ApplicationNamespaces: applicationNamespaces,
 	})

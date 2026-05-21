@@ -86,25 +86,27 @@ func (m *ManifestDiscovery) DiscoverFromApplication(ctx context.Context, app *ap
 
 // fetchAndParseManifests fetches manifests from repo server and extracts GVKs
 func (m *ManifestDiscovery) fetchAndParseManifests(ctx context.Context, app *appv1.Application) ([]schema.GroupVersionKind, error) {
-	// Build manifest request
-	req := &repoclient.ManifestRequest{
-		Repo: &appv1.Repository{
-			Repo: app.Spec.Source.RepoURL,
-		},
-		Revision:          app.Spec.Source.TargetRevision,
-		AppName:           app.Name,
-		Namespace:         app.Spec.Destination.Namespace,
-		ApplicationSource: app.Spec.Source,
+	source := app.Spec.Source
+	if source == nil {
+		if len(app.Spec.Sources) > 0 {
+			source = &app.Spec.Sources[0]
+		} else {
+			return nil, fmt.Errorf("application %s/%s has no source configured", app.Namespace, app.Name)
+		}
 	}
 
-	// Add project repositories and helm repos if available
-	// Note: In production, you'd fetch the AppProject and populate:
-	// - req.Repos (source repositories)
-	// - req.HelmRepoCreds (helm repository credentials)
-	// For POC, we're using minimal configuration
+	req := &repoclient.ManifestRequest{
+		Repo: &appv1.Repository{
+			Repo: source.RepoURL,
+		},
+		Revision:          source.TargetRevision,
+		AppName:           app.Name,
+		Namespace:         app.Spec.Destination.Namespace,
+		ApplicationSource: source,
+	}
 
 	log.WithField("app", fmt.Sprintf("%s/%s", app.Namespace, app.Name)).
-		WithField("repo", app.Spec.Source.RepoURL).
+		WithField("repo", source.RepoURL).
 		Debug("Fetching manifests from repo server")
 
 	// Call repo server to generate manifests
@@ -430,20 +432,4 @@ func (m *ManifestDiscovery) GetCacheStats() map[string]interface{} {
 	return stats
 }
 
-// isWorkloadResource returns true if the GVK is a workload resource that has a pod template
-func isWorkloadResource(gvk schema.GroupVersionKind) bool {
-	if gvk.Group == "apps" && gvk.Version == "v1" {
-		switch gvk.Kind {
-		case "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet":
-			return true
-		}
-	}
-	if gvk.Group == "batch" && gvk.Version == "v1" {
-		switch gvk.Kind {
-		case "Job", "CronJob":
-			return true
-		}
-	}
-	return false
-}
 

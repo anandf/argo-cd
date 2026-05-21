@@ -55,7 +55,7 @@ DOCKER_NETWORK_ARG :=
 endif
 
 ARGOCD_PROCFILE?=Procfile
-ARGOCD_ENABLE_GRAPH_CACHE?=true
+ARGOCD_ENABLE_GRAPH_CACHE?=false
 
 # pointing to python 3.12 to match https://github.com/argoproj/argo-cd/blob/master/.readthedocs.yaml
 MKDOCS_DOCKER_IMAGE?=python:3.12-alpine

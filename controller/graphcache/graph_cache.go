@@ -3,10 +3,10 @@ package graphcache
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -29,7 +29,11 @@ type GraphCache struct {
 	descendantTracker *DescendantTracker
 	manifestDiscovery *ManifestDiscovery
 	typeRelationships *TypeRelationshipCache
-	cyphernetesExecutor *CyphernetesQueryExecutor
+
+	// Custom relationships
+	customRelationships *CustomRelationshipIndex
+	customRelLock       sync.RWMutex
+	customRelProvider   func() ([]CustomRelationshipRule, error)
 
 	// Configuration
 	trackingMethod      TrackingMethod
@@ -106,6 +110,10 @@ type Config struct {
 	// PopulateResourceInfoHandler is called for each resource to compute
 	// health status, images, networking info, etc. If nil, no enrichment is done.
 	PopulateResourceInfoHandler PopulateResourceInfoHandler
+
+	// PrometheusRegistry is the Prometheus registry to register graph cache metrics with.
+	// If nil, metrics are not registered with any registry.
+	PrometheusRegistry *prometheus.Registry
 }
 
 // NewGraphCache creates a new graph-based cache.
@@ -159,18 +167,19 @@ func NewGraphCache(ctx context.Context, config Config) (*GraphCache, error) {
 			ResourcesByApplication: make(map[string]int),
 			WatchesByType:          make(map[schema.GroupKind]bool),
 		},
-		prometheusMetrics:           metrics.NewGraphCacheMetrics(""), // hostname can be empty for now
+		prometheusMetrics:           metrics.NewGraphCacheMetrics(config.PrometheusRegistry),
 		populateResourceInfoHandler: config.PopulateResourceInfoHandler,
 	}
 
-	// Create watch manager with event handler
+	// Create watch manager with event handler, derived from graph cache context
 	gc.watchManager = NewSelectiveWatchManager(
+		ctx,
 		config.DynamicClient,
 		config.DiscoveryClient,
 		config.TrackingMethod,
 		config.Namespaces,
 		gc.handleResourceEvent,
-		graphConfig, // Pass graph config for retry logic
+		graphConfig,
 	)
 
 	// Create manifest discovery if repo server client is provided
@@ -182,13 +191,6 @@ func NewGraphCache(ctx context.Context, config Config) (*GraphCache, error) {
 			CacheTTL:          5 * time.Minute,
 		})
 	}
-
-	// Initialize Cyphernetes executor
-	cqe, err := NewCyphernetesQueryExecutor(gc, config.DynamicClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cyphernetes executor: %w", err)
-	}
-	gc.cyphernetesExecutor = cqe
 
 	return gc, nil
 }
@@ -233,7 +235,9 @@ func (gc *GraphCache) Shutdown() {
 // from annotation to label tracking). All resources in the graph are re-processed
 // to update their ManagedBy field according to the new tracking method.
 func (gc *GraphCache) SetTrackingMethod(method TrackingMethod) {
+	gc.configLock.Lock()
 	gc.trackingMethod = method
+	gc.configLock.Unlock()
 
 	// Re-process all existing resources with the new tracking method
 	nodes := gc.graph.GetAllNodes()
@@ -329,8 +333,8 @@ func (gc *GraphCache) discoverResourceType(gk schema.GroupKind) (int, error) {
 		return 0, err
 	}
 
-	// List managed resources
-	resources, err := gc.watchManager.ListManagedResources(gvr, isNamespaced)
+	// List managed resources and capture ResourceVersion for consistent watch
+	resources, resourceVersion, err := gc.watchManager.ListManagedResources(gvr, isNamespaced)
 	if err != nil {
 		return 0, err
 	}
@@ -349,13 +353,8 @@ func (gc *GraphCache) discoverResourceType(gk schema.GroupKind) (int, error) {
 	gc.discoveredTypes[gk] = true
 	gc.discoveryLock.Unlock()
 
-	// Add Cyphernetes rule for this type
-	if gc.cyphernetesExecutor != nil {
-		gc.cyphernetesExecutor.AddRuleForResourceKind(gk.Kind, string(gc.trackingMethod))
-	}
-
-	// Ensure watch exists for this type
-	created, err := gc.watchManager.EnsureWatch(gk, "")
+	// Ensure watch exists starting from the list's ResourceVersion to avoid missing events
+	created, err := gc.watchManager.EnsureWatch(gk, "", resourceVersion)
 	if err != nil {
 		return len(resources), fmt.Errorf("failed to create watch: %w", err)
 	}
@@ -387,10 +386,14 @@ func (gc *GraphCache) addResourceToGraph(obj *unstructured.Unstructured) {
 	}
 
 	// Extract tracking information
-	trackingInfo := ExtractTrackingInfo(obj, gc.trackingMethod)
+	trackingInfo := ExtractTrackingInfo(obj, gc.getTrackingMethod())
 
 	// Extract parent references
 	parents := gc.descendantTracker.ExtractParentReferences(obj)
+
+	// Evaluate custom relationship rules for additional parent edges
+	customParents := gc.findCustomParents(obj)
+	parents = append(parents, customParents...)
 
 	// Deep copy the object to avoid external modifications
 	objCopy := obj.DeepCopy()
@@ -439,6 +442,9 @@ func (gc *GraphCache) addResourceToGraph(obj *unstructured.Unstructured) {
 
 	// Add to graph
 	gc.graph.AddOrUpdate(node)
+
+	// Evaluate custom rules where this resource is a parent
+	gc.applyCustomParentRules(obj)
 
 	// If resource has no tracking, try to derive app name from parent chain
 	if !trackingInfo.HasTracking {
@@ -531,17 +537,25 @@ func (gc *GraphCache) updateNodeAppName(key kube.ResourceKey, appName string) {
 // propagateAppNameToChildren propagates app ownership to descendant resources
 // that currently have no ManagedBy value. Handles the race condition where
 // children arrive in the graph before their parents.
+// Uses a visited set to prevent infinite recursion on graph cycles.
 func (gc *GraphCache) propagateAppNameToChildren(key kube.ResourceKey, appName string) {
 	if appName == "" {
 		return
 	}
+	gc.propagateAppNameRecursive(key, appName, make(map[kube.ResourceKey]bool))
+}
+
+func (gc *GraphCache) propagateAppNameRecursive(key kube.ResourceKey, appName string, visited map[kube.ResourceKey]bool) {
+	if visited[key] {
+		return
+	}
+	visited[key] = true
 
 	children := gc.graph.GetChildren(key)
 	for _, child := range children {
 		if child.ManagedBy == "" {
 			gc.updateNodeAppName(child.Key, appName)
-			// Recurse to propagate further down
-			gc.propagateAppNameToChildren(child.Key, appName)
+			gc.propagateAppNameRecursive(child.Key, appName, visited)
 		}
 	}
 }
@@ -578,11 +592,6 @@ func (gc *GraphCache) ensureDescendantWatches(parentGK schema.GroupKind) {
 			gc.discoveryLock.Lock()
 			gc.discoveredTypes[childGK] = true
 			gc.discoveryLock.Unlock()
-
-			// Add Cyphernetes rule for this type
-			if gc.cyphernetesExecutor != nil {
-				gc.cyphernetesExecutor.AddRuleForResourceKind(childGK.Kind, string(gc.trackingMethod))
-			}
 
 			gc.metricsLock.Lock()
 			gc.metrics.DescendantTypesAdded++
@@ -621,6 +630,13 @@ func (gc *GraphCache) ensureWatchAndDescendants(gk schema.GroupKind) {
 
 		gc.ensureDescendantWatches(gk)
 	}
+}
+
+// getTrackingMethod returns the current tracking method, safe for concurrent access.
+func (gc *GraphCache) getTrackingMethod() TrackingMethod {
+	gc.configLock.RLock()
+	defer gc.configLock.RUnlock()
+	return gc.trackingMethod
 }
 
 // SetAppInstanceLabelKey updates the custom tracking label key used for pre-filtering.
@@ -683,9 +699,13 @@ func (gc *GraphCache) handleResourceEvent(eventType watch.EventType, obj *unstru
 
 	switch eventType {
 	case watch.Added, watch.Modified:
-		// Get old node before update for change notification
+		// Deep copy old node before update — addResourceToGraph mutates in-place
 		key := ToResourceKey(obj)
-		oldNode, _ := gc.graph.Get(key)
+		var oldNode *ResourceNode
+		if existing, found := gc.graph.Get(key); found {
+			copied := *existing
+			oldNode = &copied
+		}
 
 		gc.addResourceToGraph(obj)
 
@@ -707,9 +727,21 @@ func (gc *GraphCache) handleResourceEvent(eventType watch.EventType, obj *unstru
 		}
 		gc.metricsLock.Unlock()
 
+		// Skip callback if nothing meaningful changed (same health + same manifest hash).
+		// This mirrors the traditional cache's ignoreResourceUpdates behavior and prevents
+		// every resourceVersion bump from triggering full app reconciliation.
+		if eventType == watch.Modified && oldNode != nil && newNode != nil {
+			if gc.shouldSkipResourceUpdate(oldNode, newNode) {
+				gc.metricsLock.Lock()
+				gc.metrics.SkippedEvents++
+				gc.metricsLock.Unlock()
+				return
+			}
+		}
+
 		// Notify adapter of resource change
-		if gc.onResourceUpdated != nil {
-			gc.onResourceUpdated(newNode, oldNode, obj, eventType)
+		if cb := gc.getResourceUpdateCallback(); cb != nil {
+			cb(newNode, oldNode, obj, eventType)
 		}
 
 		// Check if this is a new resource type
@@ -722,11 +754,6 @@ func (gc *GraphCache) handleResourceEvent(eventType watch.EventType, obj *unstru
 			gc.discoveryLock.Lock()
 			gc.discoveredTypes[gk] = true
 			gc.discoveryLock.Unlock()
-
-			// Add Cyphernetes rule for this type
-			if gc.cyphernetesExecutor != nil {
-				gc.cyphernetesExecutor.AddRuleForResourceKind(gk.Kind, string(gc.trackingMethod))
-			}
 
 			// Ensure descendant watches
 			gc.ensureDescendantWatches(gk)
@@ -768,6 +795,7 @@ func (gc *GraphCache) periodicDiscovery() {
 			if err := gc.DiscoverManagedResources(); err != nil {
 				log.WithError(err).WithField("component", "graph-cache").Warn("Periodic discovery failed")
 			}
+			gc.refreshCustomRelationships()
 			// Clean up expired manifest cache entries
 			if gc.manifestDiscovery != nil {
 				gc.manifestDiscovery.ClearExpiredCache()
@@ -808,10 +836,11 @@ func (gc *GraphCache) exportPrometheusMetrics() {
 	gc.prometheusMetrics.SetWatchedTypes(server, len(metrics.WatchesByType))
 	gc.prometheusMetrics.SetApplications(server, metrics.UniqueApplications)
 
-	// Calculate memory usage (approximate)
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-	gc.prometheusMetrics.SetMemoryBytes(server, int64(memStats.Alloc))
+	// Estimate graph cache memory from node count.
+	// Each ResourceNode is roughly 2KB (key, metadata, labels, annotations, refs)
+	// plus ~4KB when the full unstructured object is stored.
+	const estimatedBytesPerNode = 6 * 1024
+	gc.prometheusMetrics.SetMemoryBytes(server, int64(metrics.TotalManagedResources)*estimatedBytesPerNode)
 
 	// Export relationship metrics
 	if gc.typeRelationships != nil {
@@ -934,15 +963,14 @@ func (gc *GraphCache) HealthCheck() HealthStatus {
 		})
 	}
 
-	// Check 4: High memory usage (>2GB)
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-	status.MemoryUsageMB = int64(memStats.Alloc / 1024 / 1024)
+	// Check 4: High estimated memory usage (>2GB)
+	const estimatedBytesPerNode = 6 * 1024
+	status.MemoryUsageMB = int64(metrics.TotalManagedResources) * estimatedBytesPerNode / (1024 * 1024)
 
 	if status.MemoryUsageMB > 2048 {
 		status.Alerts = append(status.Alerts, HealthAlert{
 			Severity: "warning",
-			Message:  fmt.Sprintf("High memory usage: %dMB", status.MemoryUsageMB),
+			Message:  fmt.Sprintf("High estimated memory usage: %dMB", status.MemoryUsageMB),
 		})
 	}
 
@@ -957,6 +985,21 @@ func (gc *GraphCache) HealthCheck() HealthStatus {
 	}
 
 	return status
+}
+
+// shouldSkipResourceUpdate returns true if a resource update can be safely ignored
+// because neither health status nor manifest content changed. This prevents every
+// resourceVersion bump (e.g. status-only updates) from triggering app reconciliation.
+func (gc *GraphCache) shouldSkipResourceUpdate(oldNode, newNode *ResourceNode) bool {
+	if oldNode.CachedInfo == nil || newNode.CachedInfo == nil {
+		return false
+	}
+	oldInfo, oldOk := oldNode.CachedInfo.(*statecache.ResourceInfo)
+	newInfo, newOk := newNode.CachedInfo.(*statecache.ResourceInfo)
+	if !oldOk || !newOk {
+		return false
+	}
+	return statecache.SkipResourceUpdate(oldInfo, newInfo)
 }
 
 // GetResourcesByApplication returns all resources managed by an application.
@@ -1052,6 +1095,7 @@ func (gc *GraphCache) Snapshot() (*GraphSnapshot, error) {
 			ManagedBy:       node.ManagedBy,
 			TrackingID:      node.TrackingID,
 			Parents:         node.Parents,
+			Children:        node.Children,
 			Info:            node.Info,
 			CreatedAt:       node.CreatedAt,
 		}
@@ -1064,12 +1108,21 @@ func (gc *GraphCache) Snapshot() (*GraphSnapshot, error) {
 	}, nil
 }
 
-// Restore populates the graph from a snapshot
+// Restore populates the graph from a snapshot.
+// It uses a two-pass approach: first inserts all nodes, then rebuilds
+// parent→child edges. This ensures edges are correct regardless of
+// insertion order (a child restored before its parent would otherwise
+// lose the parent→child link).
 func (gc *GraphCache) Restore(snapshot *GraphSnapshot) error {
 	startTime := time.Now()
 	log.WithField("nodes", len(snapshot.Nodes)).Info("Restoring graph from snapshot")
 
-	for _, sNode := range snapshot.Nodes {
+	// Pass 1: insert all nodes without relationship updates.
+	// We set Parents to nil here and rebuild edges in pass 2 so that
+	// AddOrUpdate doesn't try cross-shard parent lookups on nodes
+	// that may not exist yet.
+	nodes := make([]*ResourceNode, len(snapshot.Nodes))
+	for i, sNode := range snapshot.Nodes {
 		node := &ResourceNode{
 			Key:             sNode.Key,
 			Version:         sNode.Version,
@@ -1077,10 +1130,21 @@ func (gc *GraphCache) Restore(snapshot *GraphSnapshot) error {
 			ResourceVersion: sNode.ResourceVersion,
 			ManagedBy:       sNode.ManagedBy,
 			TrackingID:      sNode.TrackingID,
-			Parents:         sNode.Parents,
+			Children:        sNode.Children,
 			Info:            sNode.Info,
 			CreatedAt:       sNode.CreatedAt,
 		}
+		gc.graph.AddOrUpdate(node)
+		nodes[i] = node
+	}
+
+	// Pass 2: rebuild parent→child edges now that all nodes exist.
+	for i, sNode := range snapshot.Nodes {
+		if len(sNode.Parents) == 0 {
+			continue
+		}
+		node := nodes[i]
+		node.Parents = sNode.Parents
 		gc.graph.AddOrUpdate(node)
 	}
 
@@ -1150,8 +1214,18 @@ func (gc *GraphCache) EnsureWatch(gvk schema.GroupVersionKind, namespace string)
 }
 
 // SetResourceUpdateCallback registers a callback invoked on every resource add/update/delete.
+// Must be called before Start() to avoid races with watch goroutines.
 func (gc *GraphCache) SetResourceUpdateCallback(cb func(newRes, oldRes *ResourceNode, obj *unstructured.Unstructured, eventType watch.EventType)) {
+	gc.configLock.Lock()
 	gc.onResourceUpdated = cb
+	gc.configLock.Unlock()
+}
+
+// getResourceUpdateCallback returns the current callback, safe for concurrent access.
+func (gc *GraphCache) getResourceUpdateCallback() func(newRes, oldRes *ResourceNode, obj *unstructured.Unstructured, eventType watch.EventType) {
+	gc.configLock.RLock()
+	defer gc.configLock.RUnlock()
+	return gc.onResourceUpdated
 }
 
 // GetTypeRelationships returns the type relationship cache for inspection
@@ -1165,4 +1239,239 @@ func (gc *GraphCache) InvalidateManifestCache(appNamespace, appName string) {
 	if gc.manifestDiscovery != nil {
 		gc.manifestDiscovery.InvalidateCache(appNamespace, appName)
 	}
+}
+
+// SetCustomRelationshipProvider sets the function used to load custom relationship
+// rules from settings. Triggers an initial load.
+func (gc *GraphCache) SetCustomRelationshipProvider(provider func() ([]CustomRelationshipRule, error)) {
+	gc.configLock.Lock()
+	gc.customRelProvider = provider
+	gc.configLock.Unlock()
+
+	gc.refreshCustomRelationships()
+}
+
+// refreshCustomRelationships reloads custom relationship rules from the provider
+// and re-evaluates edges if rules changed.
+func (gc *GraphCache) refreshCustomRelationships() {
+	gc.configLock.RLock()
+	provider := gc.customRelProvider
+	gc.configLock.RUnlock()
+
+	if provider == nil {
+		return
+	}
+
+	rules, err := provider()
+	if err != nil {
+		log.WithError(err).WithField("component", "graph-cache").
+			Warn("Failed to reload custom relationship rules")
+		return
+	}
+
+	newIdx := NewCustomRelationshipIndex(rules)
+
+	gc.customRelLock.Lock()
+	oldIdx := gc.customRelationships
+	gc.customRelationships = newIdx
+	gc.customRelLock.Unlock()
+
+	for _, gk := range newIdx.GetAllReferencedGroupKinds() {
+		gc.ensureWatchAndDescendants(gk)
+	}
+
+	if !customRulesEqual(oldIdx, newIdx) {
+		gc.reconcileCustomEdges()
+	}
+}
+
+// findCustomParents returns ParentRefs for this resource based on custom rules
+// where it appears as a child. Searches existing graph nodes as potential parents.
+func (gc *GraphCache) findCustomParents(obj *unstructured.Unstructured) []ParentRef {
+	gc.customRelLock.RLock()
+	idx := gc.customRelationships
+	gc.customRelLock.RUnlock()
+
+	if idx == nil {
+		return nil
+	}
+
+	gk := ToGroupKind(obj)
+	childRules := idx.GetRulesAsChild(gk)
+	if len(childRules) == 0 {
+		return nil
+	}
+
+	var parents []ParentRef
+	for _, rule := range childRules {
+		parentGK := selectorToGroupKind(rule.ParentResource)
+		var candidates []*ResourceNode
+		if parentGK != nil {
+			candidates = gc.graph.GetByType(*parentGK)
+		} else {
+			candidates = gc.graph.GetAllNodes()
+		}
+		for _, candidate := range candidates {
+			if candidate.Resource == nil {
+				continue
+			}
+			if evaluateCustomRelationship(rule, candidate.Resource, obj, idx.compiledRegex) {
+				parents = append(parents, ParentRef{
+					ResourceKey: candidate.Key,
+					UID:         candidate.UID,
+					Custom:      true,
+				})
+			}
+		}
+	}
+
+	return parents
+}
+
+// applyCustomParentRules evaluates custom rules where the given resource is a parent.
+// For each matching child in the graph, adds a custom edge.
+func (gc *GraphCache) applyCustomParentRules(obj *unstructured.Unstructured) {
+	gc.customRelLock.RLock()
+	idx := gc.customRelationships
+	gc.customRelLock.RUnlock()
+
+	if idx == nil {
+		return
+	}
+
+	gk := ToGroupKind(obj)
+	parentRules := idx.GetRulesAsParent(gk)
+	if len(parentRules) == 0 {
+		return
+	}
+
+	parentKey := ToResourceKey(obj)
+	parentUID := string(obj.GetUID())
+
+	for _, rule := range parentRules {
+		childGK := selectorToGroupKind(rule.ChildResource)
+		var candidates []*ResourceNode
+		if childGK != nil {
+			candidates = gc.graph.GetByType(*childGK)
+		} else {
+			candidates = gc.graph.GetAllNodes()
+		}
+		for _, candidate := range candidates {
+			if candidate.Resource == nil || candidate.Key == parentKey {
+				continue
+			}
+			if evaluateCustomRelationship(rule, obj, candidate.Resource, idx.compiledRegex) {
+				gc.addCustomParentToChild(candidate.Key, parentKey, parentUID)
+			}
+		}
+	}
+}
+
+// addCustomParentToChild adds a custom ParentRef to a child node in-place.
+func (gc *GraphCache) addCustomParentToChild(childKey, parentKey kube.ResourceKey, parentUID string) {
+	shard := gc.graph.getShard(childKey)
+	shard.lock.Lock()
+
+	child, exists := shard.nodes[childKey]
+	if !exists {
+		shard.lock.Unlock()
+		return
+	}
+
+	for _, p := range child.Parents {
+		if p.ResourceKey == parentKey && p.Custom {
+			shard.lock.Unlock()
+			return
+		}
+	}
+
+	child.Parents = append(child.Parents, ParentRef{
+		ResourceKey: parentKey,
+		UID:         parentUID,
+		Custom:      true,
+	})
+	shard.lock.Unlock()
+
+	gc.graph.addChildToParent(parentKey, childKey)
+}
+
+// removeCustomParents removes all custom ParentRefs from a node.
+func (gc *GraphCache) removeCustomParents(key kube.ResourceKey) {
+	shard := gc.graph.getShard(key)
+	shard.lock.Lock()
+
+	node, exists := shard.nodes[key]
+	if !exists {
+		shard.lock.Unlock()
+		return
+	}
+
+	var toRemove []kube.ResourceKey
+	var kept []ParentRef
+	for _, p := range node.Parents {
+		if p.Custom {
+			toRemove = append(toRemove, p.ResourceKey)
+		} else {
+			kept = append(kept, p)
+		}
+	}
+	node.Parents = kept
+	shard.lock.Unlock()
+
+	for _, parentKey := range toRemove {
+		gc.graph.removeChildFromParent(parentKey, key)
+	}
+}
+
+// reconcileCustomEdges removes all custom edges and re-evaluates all resources.
+func (gc *GraphCache) reconcileCustomEdges() {
+	allNodes := gc.graph.GetAllNodes()
+
+	for _, node := range allNodes {
+		gc.removeCustomParents(node.Key)
+	}
+
+	for _, node := range allNodes {
+		if node.Resource != nil {
+			customParents := gc.findCustomParents(node.Resource)
+			for _, p := range customParents {
+				gc.addCustomParentToChild(node.Key, p.ResourceKey, p.UID)
+			}
+		}
+	}
+
+	log.WithFields(log.Fields{
+		"component": "graph-cache",
+		"nodes":     len(allNodes),
+	}).Info("Reconciled custom relationship edges")
+}
+
+func customRulesEqual(old, new *CustomRelationshipIndex) bool {
+	if old == nil && new == nil {
+		return true
+	}
+	if old == nil || new == nil {
+		return false
+	}
+	if len(old.allRules) != len(new.allRules) {
+		return false
+	}
+	for i := range old.allRules {
+		a, b := old.allRules[i], new.allRules[i]
+		if a.Name != b.Name {
+			return false
+		}
+		if a.ParentResource != b.ParentResource || a.ChildResource != b.ChildResource {
+			return false
+		}
+		if len(a.MatchRules) != len(b.MatchRules) {
+			return false
+		}
+		for j := range a.MatchRules {
+			if a.MatchRules[j] != b.MatchRules[j] {
+				return false
+			}
+		}
+	}
+	return true
 }

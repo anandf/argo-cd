@@ -451,6 +451,8 @@ const (
 	resourceExclusionsKey = "resource.exclusions"
 	// resourceInclusions is the key to the list of explicitly watched resources
 	resourceInclusionsKey = "resource.inclusions"
+	// resourceRelationshipsKey is the key to custom resource relationship rules
+	resourceRelationshipsKey = "resource.relationships"
 	// resourceIgnoreResourceUpdatesEnabledKey is the key to a boolean determining whether the resourceIgnoreUpdates feature is enabled
 	resourceIgnoreResourceUpdatesEnabledKey = "resource.ignoreResourceUpdatesEnabled"
 	// resourceSensitiveAnnotationsKey is the key to list of annotations to mask in secret resource
@@ -818,6 +820,16 @@ func (mgr *SettingsManager) GetResourcesFilter() (*ResourcesFilter, error) {
 		rf.ResourceExclusions = excludedResources
 	}
 	return rf, nil
+}
+
+// GetResourceRelationshipsRaw returns the raw YAML string for custom resource
+// relationship rules from the argocd-cm ConfigMap.
+func (mgr *SettingsManager) GetResourceRelationshipsRaw() (string, error) {
+	argoCDCM, err := mgr.getConfigMap()
+	if err != nil {
+		return "", err
+	}
+	return argoCDCM.Data[resourceRelationshipsKey], nil
 }
 
 func (mgr *SettingsManager) GetAppInstanceLabelKey() (string, error) {
