@@ -19,24 +19,14 @@ type TypeRelationshipCache struct {
 
 	// descendants maps parent GVK to list of child GVKs
 	descendants map[schema.GroupVersionKind][]schema.GroupVersionKind
-
-	// confidence tracks how many times a relationship has been observed
-	// Key format: "parentGVK|childGVK"
-	confidence map[string]int
-
-	// Minimum confidence level to consider a relationship "learned"
-	minConfidence int
 }
 
 // NewTypeRelationshipCache creates a new cache and seeds it with well-known Kubernetes relationships
 func NewTypeRelationshipCache() *TypeRelationshipCache {
 	cache := &TypeRelationshipCache{
-		descendants:   make(map[schema.GroupVersionKind][]schema.GroupVersionKind),
-		confidence:    make(map[string]int),
-		minConfidence: 1, // Consider a relationship learned after observing it once
+		descendants: make(map[schema.GroupVersionKind][]schema.GroupVersionKind),
 	}
 
-	// Seed with well-known Kubernetes relationships
 	cache.seedWellKnownRelationships()
 
 	return cache
@@ -44,7 +34,6 @@ func NewTypeRelationshipCache() *TypeRelationshipCache {
 
 // seedWellKnownRelationships populates the cache with common Kubernetes resource relationships
 func (c *TypeRelationshipCache) seedWellKnownRelationships() {
-	// These are well-established patterns in Kubernetes that we can rely on
 	wellKnownRelationships := []TypeRelationship{
 		// Workload Controllers
 		{
@@ -87,40 +76,29 @@ func (c *TypeRelationshipCache) seedWellKnownRelationships() {
 			Parent: schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Service"},
 			Child:  schema.GroupVersionKind{Group: "discovery.k8s.io", Version: "v1", Kind: "EndpointSlice"},
 		},
-
 	}
 
-	// Add all well-known relationships with high confidence
 	for _, rel := range wellKnownRelationships {
-		c.LearnRelationship(rel.Parent, rel.Child, 100) // High confidence for well-known patterns
+		c.LearnRelationship(rel.Parent, rel.Child)
 	}
 }
 
-// LearnRelationship records or updates a parent-child relationship
-func (c *TypeRelationshipCache) LearnRelationship(parent, child schema.GroupVersionKind, confidence int) {
+// LearnRelationship records a parent-child relationship
+func (c *TypeRelationshipCache) LearnRelationship(parent, child schema.GroupVersionKind) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Update descendants list
 	if _, exists := c.descendants[parent]; !exists {
 		c.descendants[parent] = []schema.GroupVersionKind{child}
-	} else {
-		// Check if child already exists in the list
-		found := false
-		for _, existing := range c.descendants[parent] {
-			if existing == child {
-				found = true
-				break
-			}
-		}
-		if !found {
-			c.descendants[parent] = append(c.descendants[parent], child)
-		}
+		return
 	}
 
-	// Update confidence
-	key := relationshipKey(parent, child)
-	c.confidence[key] += confidence
+	for _, existing := range c.descendants[parent] {
+		if existing == child {
+			return
+		}
+	}
+	c.descendants[parent] = append(c.descendants[parent], child)
 }
 
 // GetDescendants returns all known child types for a parent type
@@ -133,7 +111,6 @@ func (c *TypeRelationshipCache) GetDescendants(parent schema.GroupVersionKind) [
 		return []schema.GroupVersionKind{}
 	}
 
-	// Return a copy to avoid concurrent modification
 	result := make([]schema.GroupVersionKind, len(descendants))
 	copy(result, descendants)
 	return result
@@ -155,7 +132,7 @@ func (c *TypeRelationshipCache) GetAllDescendantsRecursive(parent schema.GroupVe
 // collectDescendantsRecursive is the internal recursive helper
 func (c *TypeRelationshipCache) collectDescendantsRecursive(parent schema.GroupVersionKind, visited map[schema.GroupVersionKind]bool, result *[]schema.GroupVersionKind) {
 	if visited[parent] {
-		return // Avoid cycles
+		return
 	}
 	visited[parent] = true
 
@@ -168,34 +145,18 @@ func (c *TypeRelationshipCache) collectDescendantsRecursive(parent schema.GroupV
 	}
 }
 
-// GetConfidence returns the confidence level for a specific relationship
-func (c *TypeRelationshipCache) GetConfidence(parent, child schema.GroupVersionKind) int {
+// GetAllLearnedRelationships returns all parent-child pairs for persistence
+func (c *TypeRelationshipCache) GetAllLearnedRelationships() []TypeRelationship {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	key := relationshipKey(parent, child)
-	return c.confidence[key]
-}
-
-// GetAllRelationships returns all learned relationships with their confidence levels
-func (c *TypeRelationshipCache) GetAllRelationships() map[TypeRelationship]int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	result := make(map[TypeRelationship]int)
+	var result []TypeRelationship
 	for parent, children := range c.descendants {
 		for _, child := range children {
-			rel := TypeRelationship{Parent: parent, Child: child}
-			key := relationshipKey(parent, child)
-			result[rel] = c.confidence[key]
+			result = append(result, TypeRelationship{Parent: parent, Child: child})
 		}
 	}
 	return result
-}
-
-// relationshipKey creates a unique key for a parent-child relationship
-func relationshipKey(parent, child schema.GroupVersionKind) string {
-	return parent.String() + "|" + child.String()
 }
 
 // HasDescendants returns true if the parent type has any known descendants

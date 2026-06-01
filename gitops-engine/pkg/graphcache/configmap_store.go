@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,6 +20,7 @@ type ConfigMapStore struct {
 	kubeClient    kubernetes.Interface
 	namespace     string
 	configMapName string
+	log           logr.Logger
 
 	mu        sync.Mutex
 	lastSaved time.Time
@@ -31,6 +32,7 @@ type ConfigMapStoreConfig struct {
 	KubeClient    kubernetes.Interface
 	Namespace     string
 	ConfigMapName string // Optional, defaults to RelationshipConfigMapName
+	Log           logr.Logger
 }
 
 // NewConfigMapStore creates a new ConfigMap-based relationship store
@@ -43,12 +45,12 @@ func NewConfigMapStore(config ConfigMapStoreConfig) *ConfigMapStore {
 		kubeClient:    config.KubeClient,
 		namespace:     config.Namespace,
 		configMapName: config.ConfigMapName,
+		log:           config.Log,
 	}
 }
 
 // Save persists relationships to a ConfigMap
 func (s *ConfigMapStore) Save(relationships []PersistedRelationship, metadata PersistedRelationshipMetadata) error {
-	// Create persisted structure
 	persisted := PersistedRelationships{
 		Version:       "v1",
 		LastUpdated:   time.Now(),
@@ -56,7 +58,6 @@ func (s *ConfigMapStore) Save(relationships []PersistedRelationship, metadata Pe
 		Metadata:      metadata,
 	}
 
-	// Marshal to JSON
 	data, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal relationships: %w", err)
@@ -65,24 +66,19 @@ func (s *ConfigMapStore) Save(relationships []PersistedRelationship, metadata Pe
 	// Check ConfigMap size (1MB limit) and truncate if needed
 	const maxConfigMapSize = 1 * 1024 * 1024
 	if len(data) > maxConfigMapSize {
-		log.WithFields(log.Fields{
-			"component":     "graph-cache",
-			"store":         "configmap",
-			"size":          len(data),
-			"limit":         maxConfigMapSize,
-			"relationships": len(relationships),
-		}).Warn("Relationship data exceeds ConfigMap size limit, truncating to keep highest confidence")
+		s.log.Info("Relationship data exceeds ConfigMap size limit, truncating",
+			"size", len(data), "limit", maxConfigMapSize, "relationships", len(relationships))
 
-		// Sort relationships by confidence (highest first)
+		// Sort alphabetically by parent+child for deterministic truncation
 		sort.Slice(relationships, func(i, j int) bool {
-			return relationships[i].Confidence > relationships[j].Confidence
+			pi := relationships[i].Parent + "|" + relationships[i].Child
+			pj := relationships[j].Parent + "|" + relationships[j].Child
+			return pi < pj
 		})
 
-		// Binary search to find max count that fits within the ConfigMap limit.
+		// Binary search to find max count that fits
 		totalCount := len(relationships)
 		truncatedCount := sort.Search(totalCount, func(n int) bool {
-			// sort.Search finds the smallest n where f(n)==true.
-			// We test count = totalCount - n: does removing n entries make it fit?
 			count := totalCount - n
 			if count <= 0 {
 				return true
@@ -103,7 +99,6 @@ func (s *ConfigMapStore) Save(relationships []PersistedRelationship, metadata Pe
 			}
 			return len(d) <= maxConfigMapSize
 		})
-		// truncatedCount is how many to remove; keep the rest
 		keepCount := totalCount - truncatedCount
 		if keepCount <= 0 {
 			return fmt.Errorf("unable to truncate relationships to fit ConfigMap size limit")
@@ -124,16 +119,10 @@ func (s *ConfigMapStore) Save(relationships []PersistedRelationship, metadata Pe
 			return fmt.Errorf("failed to marshal truncated relationships: %w", err)
 		}
 
-		log.WithFields(log.Fields{
-			"component":       "graph-cache",
-			"store":           "configmap",
-			"original_count":  totalCount,
-			"truncated_count": keepCount,
-			"final_size":      len(data),
-		}).Info("Truncated relationships to fit ConfigMap size limit")
+		s.log.Info("Truncated relationships to fit ConfigMap size limit",
+			"original_count", totalCount, "truncated_count", keepCount, "final_size", len(data))
 	}
 
-	// Create ConfigMap object
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      s.configMapName,
@@ -149,7 +138,6 @@ func (s *ConfigMapStore) Save(relationships []PersistedRelationship, metadata Pe
 		},
 	}
 
-	// Try to update existing ConfigMap with retry on conflict
 	ctx := context.TODO()
 	const maxRetries = 3
 	for attempt := 0; attempt < maxRetries; attempt++ {
@@ -160,7 +148,6 @@ func (s *ConfigMapStore) Save(relationships []PersistedRelationship, metadata Pe
 		)
 
 		if getErr == nil {
-			// ConfigMap exists, update it
 			cm.ResourceVersion = existingCM.ResourceVersion
 			_, err = s.kubeClient.CoreV1().ConfigMaps(s.namespace).Update(
 				ctx,
@@ -168,10 +155,9 @@ func (s *ConfigMapStore) Save(relationships []PersistedRelationship, metadata Pe
 				metav1.UpdateOptions{},
 			)
 			if err != nil && apierrors.IsConflict(err) && attempt < maxRetries-1 {
-				continue // Retry on conflict
+				continue
 			}
 		} else if apierrors.IsNotFound(getErr) {
-			// ConfigMap doesn't exist, create it
 			_, err = s.kubeClient.CoreV1().ConfigMaps(s.namespace).Create(
 				ctx,
 				cm,
@@ -192,13 +178,8 @@ func (s *ConfigMapStore) Save(relationships []PersistedRelationship, metadata Pe
 	s.saveCount++
 	s.mu.Unlock()
 
-	log.WithFields(log.Fields{
-		"component":  "graph-cache",
-		"store":      "configmap",
-		"namespace":  s.namespace,
-		"configmap":  s.configMapName,
-		"size_bytes": len(data),
-	}).Debug("Saved relationships to ConfigMap")
+	s.log.V(1).Info("Saved relationships to ConfigMap",
+		"namespace", s.namespace, "configmap", s.configMapName, "size_bytes", len(data))
 
 	return nil
 }
@@ -212,10 +193,7 @@ func (s *ConfigMapStore) Load() ([]PersistedRelationship, error) {
 	)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.WithFields(log.Fields{
-				"component": "graph-cache",
-				"store":     "configmap",
-			}).Info("No persisted relationships found")
+			s.log.Info("No persisted relationships found")
 			return []PersistedRelationship{}, nil
 		}
 		return nil, fmt.Errorf("failed to get configmap: %w", err)
@@ -223,10 +201,7 @@ func (s *ConfigMapStore) Load() ([]PersistedRelationship, error) {
 
 	data, ok := cm.Data[RelationshipDataKey]
 	if !ok {
-		log.WithFields(log.Fields{
-			"component": "graph-cache",
-			"store":     "configmap",
-		}).Warn("ConfigMap exists but has no relationship data")
+		s.log.Info("ConfigMap exists but has no relationship data")
 		return []PersistedRelationship{}, nil
 	}
 
@@ -235,40 +210,13 @@ func (s *ConfigMapStore) Load() ([]PersistedRelationship, error) {
 		return nil, fmt.Errorf("failed to unmarshal relationships: %w", err)
 	}
 
-	log.WithFields(log.Fields{
-		"component":    "graph-cache",
-		"store":        "configmap",
-		"loaded":       len(persisted.Relationships),
-		"last_updated": persisted.LastUpdated,
-		"seeded":       persisted.Metadata.SeededCount,
-		"learned":      persisted.Metadata.LearnedCount,
-	}).Info("Loaded relationships from ConfigMap")
+	s.log.Info("Loaded relationships from ConfigMap",
+		"loaded", len(persisted.Relationships), "last_updated", persisted.LastUpdated)
 
 	return persisted.Relationships, nil
 }
 
 // Close performs cleanup (no-op for ConfigMap store)
 func (s *ConfigMapStore) Close() error {
-	// ConfigMap store doesn't need cleanup
 	return nil
-}
-
-// GetStats returns statistics about the ConfigMap store
-func (s *ConfigMapStore) GetStats() map[string]interface{} {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	stats := map[string]interface{}{
-		"type":          "configmap",
-		"namespace":     s.namespace,
-		"configmap":     s.configMapName,
-		"last_saved":    s.lastSaved,
-		"save_count":    s.saveCount,
-	}
-
-	if !s.lastSaved.IsZero() {
-		stats["time_since_last_save"] = time.Since(s.lastSaved).String()
-	}
-
-	return stats
 }

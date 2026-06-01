@@ -9,7 +9,7 @@ import (
 // BenchmarkResourceGraph_LabelUpdate_NoChanges benchmarks updating a resource with unchanged labels
 // This is a common scenario where resources are frequently updated but labels rarely change
 func BenchmarkResourceGraph_LabelUpdate_NoChanges(b *testing.B) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	// Create a node with many labels
 	node := &ResourceNode{
@@ -51,7 +51,7 @@ func BenchmarkResourceGraph_LabelUpdate_NoChanges(b *testing.B) {
 
 // BenchmarkResourceGraph_LabelUpdate_OneChanged benchmarks updating a resource with one label changed
 func BenchmarkResourceGraph_LabelUpdate_OneChanged(b *testing.B) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	node := &ResourceNode{
 		Key: kube.ResourceKey{
@@ -97,7 +97,7 @@ func BenchmarkResourceGraph_LabelUpdate_OneChanged(b *testing.B) {
 
 // BenchmarkResourceGraph_LabelUpdate_ManyLabels benchmarks updating with many label changes
 func BenchmarkResourceGraph_LabelUpdate_ManyLabels(b *testing.B) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	node := &ResourceNode{
 		Key: kube.ResourceKey{
@@ -141,7 +141,7 @@ func BenchmarkResourceGraph_LabelUpdate_ManyLabels(b *testing.B) {
 
 // BenchmarkResourceGraph_LabelUpdate_FewLabels benchmarks with resources having few labels (3)
 func BenchmarkResourceGraph_LabelUpdate_FewLabels(b *testing.B) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	node := &ResourceNode{
 		Key: kube.ResourceKey{
@@ -174,7 +174,7 @@ func BenchmarkResourceGraph_LabelUpdate_FewLabels(b *testing.B) {
 
 // BenchmarkResourceGraph_AddOrUpdate_Concurrent benchmarks concurrent updates
 func BenchmarkResourceGraph_AddOrUpdate_Concurrent(b *testing.B) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	b.ResetTimer()
 	b.ReportAllocs()

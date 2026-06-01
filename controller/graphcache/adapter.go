@@ -9,6 +9,7 @@ import (
 	"time"
 
 	clustercache "github.com/argoproj/argo-cd/gitops-engine/pkg/cache"
+	graphcore "github.com/argoproj/argo-cd/gitops-engine/pkg/graphcache"
 	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 	log "github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -40,7 +41,6 @@ type GraphLiveStateCache struct {
 	clusterCaches   map[string]*clusterCacheAdapter
 	lock            sync.RWMutex
 	ctx             context.Context
-	store           GraphStore
 	onObjectUpdated statecache.ObjectUpdatedHandler
 	argocdNamespace string
 	settingsMgr     *settings.SettingsManager
@@ -50,12 +50,11 @@ type GraphLiveStateCache struct {
 }
 
 // NewGraphLiveStateCache creates a new adapter that wraps GraphCache
-func NewGraphLiveStateCache(config Config, store GraphStore, onObjectUpdated statecache.ObjectUpdatedHandler, argocdNamespace string, settingsMgr *settings.SettingsManager, database db.ArgoDB, clusterSharding sharding.ClusterShardingCache, repoConn io.Closer) *GraphLiveStateCache {
+func NewGraphLiveStateCache(config Config, onObjectUpdated statecache.ObjectUpdatedHandler, argocdNamespace string, settingsMgr *settings.SettingsManager, database db.ArgoDB, clusterSharding sharding.ClusterShardingCache, repoConn io.Closer) *GraphLiveStateCache {
 	return &GraphLiveStateCache{
 		config:          config,
 		clusterCaches:   make(map[string]*clusterCacheAdapter),
 		ctx:             context.Background(),
-		store:           store,
 		onObjectUpdated: onObjectUpdated,
 		argocdNamespace: argocdNamespace,
 		settingsMgr:     settingsMgr,
@@ -148,38 +147,9 @@ func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (clusterca
 		}
 	}
 
-	// Wire up custom relationship provider from settings
-	if a.settingsMgr != nil {
-		settingsMgr := a.settingsMgr
-		gc.SetCustomRelationshipProvider(func() ([]CustomRelationshipRule, error) {
-			raw, err := settingsMgr.GetResourceRelationshipsRaw()
-			if err != nil {
-				return nil, err
-			}
-			return ParseCustomRelationshipRules(raw)
-		})
-	}
-
-	// Restore from snapshot if available
-	if a.store != nil {
-		snapshot, loadErr := a.store.LoadSnapshot(cluster.Server)
-		if loadErr != nil {
-			log.Warnf("Failed to load snapshot for cluster %s: %v", cluster.Server, loadErr)
-		} else if snapshot != nil {
-			if restoreErr := gc.Restore(snapshot); restoreErr != nil {
-				log.Warnf("Failed to restore snapshot for cluster %s: %v", cluster.Server, restoreErr)
-			}
-		}
-	}
-
 	// Start the cache
 	if err := gc.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start graph cache for cluster %s: %w", cluster.Server, err)
-	}
-
-	// Start persistence loop
-	if a.store != nil {
-		go a.runPersistenceLoop(cluster.Server, gc, gcConfig.GraphConfig.PersistenceInterval)
 	}
 
 	clusterCache = newClusterCacheAdapter(gc, cluster.Server, a.onObjectUpdated, a.argocdNamespace)
@@ -187,27 +157,6 @@ func (a *GraphLiveStateCache) GetClusterCache(cluster *appv1.Cluster) (clusterca
 	clusterCache.markSynced()
 	a.clusterCaches[cluster.Server] = clusterCache
 	return clusterCache, nil
-}
-
-func (a *GraphLiveStateCache) runPersistenceLoop(clusterServer string, gc *GraphCache, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-a.ctx.Done():
-			return
-		case <-ticker.C:
-			snapshot, err := gc.Snapshot()
-			if err != nil {
-				log.Warnf("Failed to create snapshot for cluster %s: %v", clusterServer, err)
-				continue
-			}
-			if err := a.store.SaveSnapshot(clusterServer, snapshot); err != nil {
-				log.Warnf("Failed to save snapshot for cluster %s: %v", clusterServer, err)
-			}
-		}
-	}
 }
 
 // IterateHierarchy executes the callback for each resource in the hierarchy starting from the given key
@@ -300,10 +249,15 @@ func (a *GraphLiveStateCache) UpdateShard(shard int) bool {
 }
 
 // Run starts the cache and watches for cluster changes.
+// Unlike the traditional cache, no gitops-engine ClusterCache objects are created
+// here. Per-cluster GraphCache instances are created lazily in GetClusterCache()
+// and use selective watches instead of full-cluster discovery.
 func (a *GraphLiveStateCache) Run(ctx context.Context) error {
 	a.lock.Lock()
 	a.ctx = ctx
 	a.lock.Unlock()
+
+	log.Info("GraphCache Run started — managing cluster state via selective watches (no traditional cache overhead)")
 
 	if a.settingsMgr != nil {
 		go a.watchSettings(ctx)
@@ -439,7 +393,6 @@ func (a *GraphLiveStateCache) watchSettings(ctx context.Context) {
 					if newLabelKey != "" {
 						clusterCache.graphCache.SetAppInstanceLabelKey(newLabelKey)
 					}
-					clusterCache.graphCache.refreshCustomRelationships()
 				}
 			}
 			a.lock.Unlock()
@@ -453,16 +406,16 @@ func (a *GraphLiveStateCache) watchSettings(ctx context.Context) {
 
 // convertTrackingMethod converts from the settings tracking method string to
 // the graph cache's TrackingMethod type.
-func convertTrackingMethod(method string) TrackingMethod {
+func convertTrackingMethod(method string) graphcore.TrackingMethod {
 	switch appv1.TrackingMethod(method) {
 	case appv1.TrackingMethodAnnotation:
-		return TrackingMethodAnnotation
+		return graphcore.TrackingMethodAnnotation
 	case appv1.TrackingMethodLabel:
-		return TrackingMethodLabel
+		return graphcore.TrackingMethodLabel
 	case appv1.TrackingMethodAnnotationAndLabel:
-		return TrackingMethodAnnotationAndLabel
+		return graphcore.TrackingMethodAnnotationAndLabel
 	default:
-		return TrackingMethodAnnotationAndLabel
+		return graphcore.TrackingMethodAnnotationAndLabel
 	}
 }
 
@@ -479,9 +432,11 @@ func (a *GraphLiveStateCache) GetClustersInfo() []clustercache.ClusterInfo {
 	return result
 }
 
-// Init initializes the cache
+// Init initializes the cache. The graph cache does not need the traditional
+// cache's Init() work (loading cluster settings into a gitops-engine config),
+// since per-cluster settings are applied when each GraphCache is created lazily.
 func (a *GraphLiveStateCache) Init() error {
-	log.Info("Initializing GraphCache adapter")
+	log.Info("GraphCache adapter initialized — traditional gitops-engine cache is disabled")
 	return nil
 }
 
@@ -493,7 +448,7 @@ func (a *GraphLiveStateCache) RegisterCluster(server string, clusterCache *clust
 }
 
 // nodeToResourceNode converts a ResourceNode from graph cache to appv1.ResourceNode
-func nodeToResourceNode(node *ResourceNode) appv1.ResourceNode {
+func nodeToResourceNode(node *graphcore.ResourceNode) appv1.ResourceNode {
 	parentRefs := make([]appv1.ResourceRef, 0, len(node.Parents))
 	for _, parent := range node.Parents {
 		parentRefs = append(parentRefs, appv1.ResourceRef{
@@ -538,7 +493,7 @@ func nodeToResourceNode(node *ResourceNode) appv1.ResourceNode {
 }
 
 // nodeToCacheResource converts a ResourceNode to a gitops-engine cache.Resource
-func nodeToCacheResource(node *ResourceNode) *clustercache.Resource {
+func nodeToCacheResource(node *graphcore.ResourceNode) *clustercache.Resource {
 	res := &clustercache.Resource{
 		Ref: v1.ObjectReference{
 			APIVersion: schema.GroupVersion{Group: node.Key.Group, Version: node.Version}.String(),
@@ -595,7 +550,7 @@ func newClusterCacheAdapter(gc *GraphCache, server string, onObjectUpdated state
 	// synced starts as false — will be signaled after Start() completes
 
 	// Wire up resource update notifications from GraphCache to adapter handlers
-	gc.SetResourceUpdateCallback(func(newRes, oldRes *ResourceNode, obj *unstructured.Unstructured, eventType watch.EventType) {
+	gc.SetResourceUpdateCallback(func(newRes, oldRes *graphcore.ResourceNode, obj *unstructured.Unstructured, eventType watch.EventType) {
 		// Notify OnEvent handlers
 		adapter.notifyEvent(eventType, obj)
 
@@ -608,26 +563,10 @@ func newClusterCacheAdapter(gc *GraphCache, server string, onObjectUpdated state
 			oldCacheRes = nodeToCacheResource(oldRes)
 		}
 
-		// Build namespace resources map
-		ns := ""
-		if newRes != nil {
-			ns = newRes.Key.Namespace
-		} else if oldRes != nil {
-			ns = oldRes.Key.Namespace
-		}
-
-		var nsResources map[kube.ResourceKey]*clustercache.Resource
-		if ns != "" && gc.graph != nil {
-			nsResources = make(map[kube.ResourceKey]*clustercache.Resource)
-			allNodes := gc.graph.GetAllNodes()
-			for _, node := range allNodes {
-				if node.Key.Namespace == ns {
-					nsResources[node.Key] = nodeToCacheResource(node)
-				}
-			}
-		}
-
-		adapter.notifyResourceUpdated(newCacheRes, oldCacheRes, nsResources)
+		// The traditional cache passes namespace resources so handlers can walk
+		// OwnerRef chains to resolve app names. The graph cache doesn't need this
+		// — app ownership is stored directly in ManagedBy on each node.
+		adapter.notifyResourceUpdated(newCacheRes, oldCacheRes, nil)
 
 		// Notify the controller's ObjectUpdatedHandler so it re-queues affected apps.
 		// This is critical: without this, the controller won't know to re-reconcile
@@ -653,7 +592,7 @@ func newClusterCacheAdapter(gc *GraphCache, server string, onObjectUpdated state
 				}
 			}
 
-			for _, r := range []*ResourceNode{newRes, oldRes} {
+			for _, r := range []*graphcore.ResourceNode{newRes, oldRes} {
 				if r == nil {
 					continue
 				}
@@ -725,12 +664,8 @@ func (c *clusterCacheAdapter) IsNamespaced(gk schema.GroupKind) (bool, error) {
 		return false, fmt.Errorf("graphCache or watchManager is nil")
 	}
 	// First check if we already watch this type
-	c.graphCache.watchManager.watchLock.RLock()
-	handle, exists := c.graphCache.watchManager.watches[gk]
-	c.graphCache.watchManager.watchLock.RUnlock()
-
-	if exists {
-		return handle.IsNamespaced, nil
+	if isNamespaced, found := c.graphCache.watchManager.GetWatchIsNamespaced(gk); found {
+		return isNamespaced, nil
 	}
 
 	// Fallback to discovery
@@ -827,7 +762,7 @@ func (c *clusterCacheAdapter) iterateHierarchyRecursiveSkipMissing(key kube.Reso
 // and provides namespace resources to the callback for context.
 // Handles both within-namespace and cross-namespace parent-child relationships.
 func (c *clusterCacheAdapter) IterateHierarchyV2(keys []kube.ResourceKey, action func(resource *clustercache.Resource, namespaceResources map[kube.ResourceKey]*clustercache.Resource) bool) {
-	// Build namespace resource maps lazily
+	// Build namespace resource maps lazily using the namespace index
 	nsResourceCache := make(map[string]map[kube.ResourceKey]*clustercache.Resource)
 	getNsResources := func(namespace string) map[kube.ResourceKey]*clustercache.Resource {
 		if namespace == "" {
@@ -837,11 +772,9 @@ func (c *clusterCacheAdapter) IterateHierarchyV2(keys []kube.ResourceKey, action
 			return cached
 		}
 		nsMap := make(map[kube.ResourceKey]*clustercache.Resource)
-		allNodes := c.graphCache.graph.GetAllNodes()
-		for _, node := range allNodes {
-			if node.Key.Namespace == namespace {
-				nsMap[node.Key] = nodeToCacheResource(node)
-			}
+		nodes := c.graphCache.graph.GetByNamespace(namespace)
+		for _, node := range nodes {
+			nsMap[node.Key] = nodeToCacheResource(node)
 		}
 		nsResourceCache[namespace] = nsMap
 		return nsMap
@@ -890,17 +823,16 @@ func (c *clusterCacheAdapter) IterateHierarchyV2(keys []kube.ResourceKey, action
 
 // traverseCrossNamespaceChildren finds children that reference the given parent UID
 // across all namespaces. Used for cluster-scoped parents owning namespaced children.
+// Uses the UID index + Children list for O(1) lookup instead of scanning all nodes.
 func (c *clusterCacheAdapter) traverseCrossNamespaceChildren(parentUID string, visited map[kube.ResourceKey]bool, traverse func(kube.ResourceKey)) {
-	allNodes := c.graphCache.graph.GetAllNodes()
-	for _, node := range allNodes {
-		if visited[node.Key] {
-			continue
-		}
-		for _, parent := range node.Parents {
-			if parent.UID == parentUID {
-				traverse(node.Key)
-				break
-			}
+	parentNode, exists := c.graphCache.graph.GetByUID(parentUID)
+	if !exists {
+		return
+	}
+	children := c.graphCache.graph.GetChildren(parentNode.Key)
+	for _, child := range children {
+		if !visited[child.Key] {
+			traverse(child.Key)
 		}
 	}
 }
@@ -1010,7 +942,7 @@ func (c *clusterCacheAdapter) fetchResourceFromAPI(key kube.ResourceKey) (*unstr
 
 	// Discover the GVR for this resource
 	gk := schema.GroupKind{Group: key.Group, Kind: key.Kind}
-	gvr, _, err := c.graphCache.watchManager.discoverResource(gk)
+	gvr, _, err := c.graphCache.watchManager.DiscoverResource(gk)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover resource %s: %w", gk, err)
 	}
@@ -1109,13 +1041,9 @@ func (c *clusterCacheAdapter) IterateResources(callback func(res *clustercache.R
 // GetNamespaceTopLevelResources returns all top-level resources in a namespace
 func (c *clusterCacheAdapter) GetNamespaceTopLevelResources(namespace string) (map[kube.ResourceKey]appv1.ResourceNode, error) {
 	result := make(map[kube.ResourceKey]appv1.ResourceNode)
-	allResources := c.graphCache.graph.GetAllNodes()
+	nsNodes := c.graphCache.graph.GetByNamespace(namespace)
 
-	for _, node := range allResources {
-		if node.Key.Namespace != namespace {
-			continue
-		}
-
+	for _, node := range nsNodes {
 		if len(node.Parents) == 0 {
 			result[node.Key] = nodeToResourceNode(node)
 		}
@@ -1251,13 +1179,15 @@ func (c *clusterCacheAdapter) Invalidate(opts ...clustercache.UpdateSettingsFunc
 // FindResources finds resources matching the given predicates
 func (c *clusterCacheAdapter) FindResources(namespace string, predicates ...func(r *clustercache.Resource) bool) map[kube.ResourceKey]*clustercache.Resource {
 	result := make(map[kube.ResourceKey]*clustercache.Resource)
-	allNodes := c.graphCache.graph.GetAllNodes()
 
-	for _, node := range allNodes {
-		if namespace != "" && node.Key.Namespace != namespace {
-			continue
-		}
+	var nodes []*graphcore.ResourceNode
+	if namespace != "" {
+		nodes = c.graphCache.graph.GetByNamespace(namespace)
+	} else {
+		nodes = c.graphCache.graph.GetAllNodes()
+	}
 
+	for _, node := range nodes {
 		res := nodeToCacheResource(node)
 
 		match := true

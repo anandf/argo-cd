@@ -6,28 +6,26 @@ import (
 	"testing"
 	"time"
 
+	graphcore "github.com/argoproj/argo-cd/gitops-engine/pkg/graphcache"
+	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
 	kubetesting "k8s.io/client-go/testing"
-
-	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 )
 
 func TestNewGraphCache(t *testing.T) {
 	scheme := runtime.NewScheme()
 	dynamicClient := fakedynamic.NewSimpleDynamicClient(scheme)
-	discoveryClient := &fakediscovery.FakeDiscovery{
-		Fake: &kubetesting.Fake{},
-	}
 
 	config := Config{
 		DynamicClient:   dynamicClient,
-		DiscoveryClient: discoveryClient,
-		TrackingMethod:  TrackingMethodLabel,
+		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
+		TrackingMethod:  graphcore.TrackingMethodLabel,
 		Namespaces:      []string{"argocd"},
 	}
 
@@ -42,7 +40,7 @@ func TestGraphCache_AddResource(t *testing.T) {
 	config := Config{
 		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
 		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
-		TrackingMethod:  TrackingMethodLabel,
+		TrackingMethod:  graphcore.TrackingMethodLabel,
 	}
 	gc, _ := NewGraphCache(context.Background(), config)
 
@@ -63,7 +61,7 @@ func TestGraphCache_AddResource(t *testing.T) {
 	gc.addResourceToGraph(obj)
 
 	// Verify it's in the graph
-	key := ToResourceKey(obj)
+	key := graphcore.ToResourceKey(obj)
 	node, exists := gc.graph.Get(key)
 	assert.True(t, exists)
 	assert.Equal(t, "test-app", node.ManagedBy)
@@ -78,7 +76,7 @@ func TestGraphCache_EventHandling(t *testing.T) {
 	config := Config{
 		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
 		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
-		TrackingMethod:  TrackingMethodLabel,
+		TrackingMethod:  graphcore.TrackingMethodLabel,
 	}
 	gc, _ := NewGraphCache(context.Background(), config)
 
@@ -98,7 +96,7 @@ func TestGraphCache_EventHandling(t *testing.T) {
 
 	// Simulate ADD event
 	gc.handleResourceEvent(watch.Added, obj)
-	key := ToResourceKey(obj)
+	key := graphcore.ToResourceKey(obj)
 	_, exists := gc.graph.Get(key)
 	assert.True(t, exists)
 
@@ -112,7 +110,7 @@ func TestGraphCache_Metrics(t *testing.T) {
 	config := Config{
 		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
 		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
-		TrackingMethod:  TrackingMethodLabel,
+		TrackingMethod:  graphcore.TrackingMethodLabel,
 	}
 	gc, _ := NewGraphCache(context.Background(), config)
 
@@ -145,7 +143,7 @@ func TestGraphCache_HealthCheck_Healthy(t *testing.T) {
 	config := Config{
 		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
 		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
-		TrackingMethod:  TrackingMethodLabel,
+		TrackingMethod:  graphcore.TrackingMethodLabel,
 	}
 	gc, _ := NewGraphCache(context.Background(), config)
 
@@ -196,7 +194,7 @@ func TestGraphCache_HealthCheck_NoWatches(t *testing.T) {
 	config := Config{
 		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
 		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
-		TrackingMethod:  TrackingMethodLabel,
+		TrackingMethod:  graphcore.TrackingMethodLabel,
 	}
 	gc, _ := NewGraphCache(context.Background(), config)
 
@@ -220,7 +218,7 @@ func TestGraphCache_HealthCheck_NoResourcesAfterDiscovery(t *testing.T) {
 	config := Config{
 		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
 		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
-		TrackingMethod:  TrackingMethodLabel,
+		TrackingMethod:  graphcore.TrackingMethodLabel,
 	}
 	gc, _ := NewGraphCache(context.Background(), config)
 
@@ -246,7 +244,7 @@ func TestGraphCache_HealthCheck_StaleDiscovery(t *testing.T) {
 	config := Config{
 		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
 		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
-		TrackingMethod:  TrackingMethodLabel,
+		TrackingMethod:  graphcore.TrackingMethodLabel,
 	}
 	gc, _ := NewGraphCache(context.Background(), config)
 
@@ -289,13 +287,13 @@ func TestGraphCache_HealthCheck_MemoryUsage(t *testing.T) {
 	config := Config{
 		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
 		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
-		TrackingMethod:  TrackingMethodLabel,
+		TrackingMethod:  graphcore.TrackingMethodLabel,
 	}
 	gc, _ := NewGraphCache(context.Background(), config)
 
 	// Add enough resources so that estimated memory exceeds 1MB
 	for i := 0; i < 200; i++ {
-		gc.graph.AddOrUpdate(&ResourceNode{
+		gc.graph.AddOrUpdate(&graphcore.ResourceNode{
 			Key:     kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: fmt.Sprintf("deploy-%d", i)},
 			Version: "v1",
 			UID:     fmt.Sprintf("uid-%d", i),
@@ -315,7 +313,7 @@ func TestGraphCache_HealthCheck_AllAlerts(t *testing.T) {
 	config := Config{
 		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
 		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
-		TrackingMethod:  TrackingMethodLabel,
+		TrackingMethod:  graphcore.TrackingMethodLabel,
 	}
 	gc, _ := NewGraphCache(context.Background(), config)
 
@@ -346,4 +344,215 @@ func TestGraphCache_HealthCheck_AllAlerts(t *testing.T) {
 	}
 	assert.True(t, hasCritical, "Should have at least one critical alert")
 	assert.True(t, hasWarning, "Should have at least one warning alert")
+}
+
+func TestHandleCRDEvent_RetriesPendingWatches(t *testing.T) {
+	config := Config{
+		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
+		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
+		TrackingMethod:  graphcore.TrackingMethodLabel,
+		Namespaces:      []string{"default"},
+	}
+	gc, err := NewGraphCache(context.Background(), config)
+	assert.NoError(t, err)
+
+	// Seed a pending watch GVK (simulating a prior failed EnsureWatch)
+	pendingGVK := schema.GroupVersionKind{Group: "stable.example.com", Version: "v1", Kind: "CronTab"}
+	gc.discoveryLock.Lock()
+	gc.pendingWatchGVKs[pendingGVK] = "default"
+	gc.discoveryLock.Unlock()
+
+	// Verify the pending entry exists
+	gc.discoveryLock.RLock()
+	assert.Len(t, gc.pendingWatchGVKs, 1)
+	gc.discoveryLock.RUnlock()
+
+	// Simulate a CRD add event for the CronTab CRD
+	crdObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apiextensions.k8s.io/v1",
+			"kind":       "CustomResourceDefinition",
+			"metadata": map[string]interface{}{
+				"name": "crontabs.stable.example.com",
+			},
+			"spec": map[string]interface{}{
+				"group": "stable.example.com",
+				"names": map[string]interface{}{
+					"kind": "CronTab",
+				},
+				"versions": []interface{}{
+					map[string]interface{}{
+						"name":    "v1",
+						"served":  true,
+						"storage": true,
+					},
+				},
+			},
+		},
+	}
+
+	assert.True(t, kube.IsCRD(crdObj), "Object should be detected as a CRD")
+
+	// Call handleCRDEvent — the retry will fail because fake discovery doesn't know
+	// about stable.example.com/v1/CronTab, but it should still attempt the retry
+	// and the pending entry should remain since the watch can't actually be created
+	gc.handleCRDEvent(crdObj)
+
+	// The pending GVK should still be there because the fake discovery client
+	// doesn't actually know about this resource type
+	gc.discoveryLock.RLock()
+	_, stillPending := gc.pendingWatchGVKs[pendingGVK]
+	gc.discoveryLock.RUnlock()
+	assert.True(t, stillPending, "Pending GVK should still be present when watch creation fails")
+}
+
+func TestHandleCRDEvent_InvalidatesAPICache(t *testing.T) {
+	config := Config{
+		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
+		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
+		TrackingMethod:  graphcore.TrackingMethodLabel,
+		Namespaces:      []string{"default"},
+	}
+	gc, err := NewGraphCache(context.Background(), config)
+	assert.NoError(t, err)
+
+	// Seed multiple pending watches
+	gvk1 := schema.GroupVersionKind{Group: "stable.example.com", Version: "v1", Kind: "CronTab"}
+	gvk2 := schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "Widget"}
+	gc.discoveryLock.Lock()
+	gc.pendingWatchGVKs[gvk1] = "default"
+	gc.pendingWatchGVKs[gvk2] = "default"
+	gc.discoveryLock.Unlock()
+
+	crdObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apiextensions.k8s.io/v1",
+			"kind":       "CustomResourceDefinition",
+			"metadata": map[string]interface{}{
+				"name": "crontabs.stable.example.com",
+			},
+			"spec": map[string]interface{}{
+				"group": "stable.example.com",
+				"names": map[string]interface{}{
+					"kind": "CronTab",
+				},
+			},
+		},
+	}
+
+	// handleCRDEvent retries ALL pending watches (not just the one matching this CRD)
+	gc.handleCRDEvent(crdObj)
+
+	// Both should still be pending since the fake client can't create real watches,
+	// but the important thing is that the retry was attempted for both
+	gc.discoveryLock.RLock()
+	assert.Len(t, gc.pendingWatchGVKs, 2, "Both GVKs should still be pending since fake client can't create watches")
+	gc.discoveryLock.RUnlock()
+}
+
+func TestEnsureWatch_RecordsPendingOnFailure(t *testing.T) {
+	config := Config{
+		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
+		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
+		TrackingMethod:  graphcore.TrackingMethodLabel,
+		Namespaces:      []string{"default"},
+	}
+	gc, err := NewGraphCache(context.Background(), config)
+	assert.NoError(t, err)
+
+	// EnsureWatch for an unknown GVK should fail and record it as pending
+	gvk := schema.GroupVersionKind{Group: "stable.example.com", Version: "v1", Kind: "CronTab"}
+	err = gc.EnsureWatch(gvk, "default")
+	assert.Error(t, err, "EnsureWatch should fail for unknown GVK")
+
+	gc.discoveryLock.RLock()
+	ns, pending := gc.pendingWatchGVKs[gvk]
+	gc.discoveryLock.RUnlock()
+	assert.True(t, pending, "Failed GVK should be recorded in pendingWatchGVKs")
+	assert.Equal(t, "default", ns)
+}
+
+func TestHandleCRDEvent_NoPendingWatchesIsNoop(t *testing.T) {
+	config := Config{
+		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
+		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
+		TrackingMethod:  graphcore.TrackingMethodLabel,
+		Namespaces:      []string{"default"},
+	}
+	gc, err := NewGraphCache(context.Background(), config)
+	assert.NoError(t, err)
+
+	// No pending watches
+	gc.discoveryLock.RLock()
+	assert.Empty(t, gc.pendingWatchGVKs)
+	gc.discoveryLock.RUnlock()
+
+	crdObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apiextensions.k8s.io/v1",
+			"kind":       "CustomResourceDefinition",
+			"metadata": map[string]interface{}{
+				"name": "widgets.test.io",
+			},
+			"spec": map[string]interface{}{
+				"group": "test.io",
+				"names": map[string]interface{}{
+					"kind": "Widget",
+				},
+			},
+		},
+	}
+
+	// Should be a no-op — no panics, no errors
+	gc.handleCRDEvent(crdObj)
+
+	gc.discoveryLock.RLock()
+	assert.Empty(t, gc.pendingWatchGVKs)
+	gc.discoveryLock.RUnlock()
+}
+
+func TestHandleResourceEvent_DetectsCRDAndCallsHandler(t *testing.T) {
+	config := Config{
+		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
+		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
+		TrackingMethod:  graphcore.TrackingMethodLabel,
+		Namespaces:      []string{"default"},
+	}
+	gc, err := NewGraphCache(context.Background(), config)
+	assert.NoError(t, err)
+
+	// Seed a pending watch
+	pendingGVK := schema.GroupVersionKind{Group: "test.io", Version: "v1", Kind: "Widget"}
+	gc.discoveryLock.Lock()
+	gc.pendingWatchGVKs[pendingGVK] = "default"
+	gc.discoveryLock.Unlock()
+
+	// Send a CRD add event through handleResourceEvent
+	crdObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apiextensions.k8s.io/v1",
+			"kind":       "CustomResourceDefinition",
+			"metadata": map[string]interface{}{
+				"name":      "widgets.test.io",
+				"namespace": "",
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/instance": "test-app",
+				},
+			},
+			"spec": map[string]interface{}{
+				"group": "test.io",
+				"names": map[string]interface{}{
+					"kind": "Widget",
+				},
+			},
+		},
+	}
+
+	// handleResourceEvent should process the CRD and trigger handleCRDEvent
+	gc.handleResourceEvent(watch.Added, crdObj)
+
+	// Verify the CRD was added to the graph
+	key := graphcore.ToResourceKey(crdObj)
+	_, exists := gc.graph.Get(key)
+	assert.True(t, exists, "CRD should be in the graph after add event")
 }

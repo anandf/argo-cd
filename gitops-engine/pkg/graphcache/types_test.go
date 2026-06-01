@@ -14,7 +14,6 @@ import (
 func TestDefaultGraphConfig(t *testing.T) {
 	cfg := DefaultGraphConfig()
 
-	assert.Equal(t, 32, cfg.ShardCount, "Default shard count should be 32")
 	assert.Equal(t, 5*time.Minute, cfg.DiscoveryInterval, "Default discovery interval should be 5m")
 	assert.Equal(t, 10*time.Second, cfg.InitialDiscoveryDelay, "Default initial discovery delay should be 10s")
 	assert.Equal(t, 30*time.Second, cfg.MetricsExportInterval, "Default metrics export interval should be 30s")
@@ -25,38 +24,13 @@ func TestDefaultGraphConfig(t *testing.T) {
 }
 
 func TestNewResourceGraph(t *testing.T) {
-	t.Run("default shard count", func(t *testing.T) {
-		graph := NewResourceGraph(32)
-		assert.NotNil(t, graph)
-		assert.Equal(t, 0, graph.Size())
-		assert.Equal(t, 32, graph.shardCount)
-		assert.Len(t, graph.shards, 32)
-	})
-
-	t.Run("custom shard count", func(t *testing.T) {
-		graph := NewResourceGraph(16)
-		assert.NotNil(t, graph)
-		assert.Equal(t, 16, graph.shardCount)
-		assert.Len(t, graph.shards, 16)
-	})
-
-	t.Run("zero shard count defaults to 32", func(t *testing.T) {
-		graph := NewResourceGraph(0)
-		assert.NotNil(t, graph)
-		assert.Equal(t, 32, graph.shardCount)
-		assert.Len(t, graph.shards, 32)
-	})
-
-	t.Run("negative shard count defaults to 32", func(t *testing.T) {
-		graph := NewResourceGraph(-5)
-		assert.NotNil(t, graph)
-		assert.Equal(t, 32, graph.shardCount)
-		assert.Len(t, graph.shards, 32)
-	})
+	graph := NewResourceGraph()
+	assert.NotNil(t, graph)
+	assert.Equal(t, 0, graph.Size())
 }
 
 func TestResourceGraph_AddOrUpdate(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	node := &ResourceNode{
 		Key: kube.ResourceKey{
@@ -97,7 +71,7 @@ func TestResourceGraph_AddOrUpdate(t *testing.T) {
 }
 
 func TestResourceGraph_Delete(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	node := &ResourceNode{
 		Key: kube.ResourceKey{
@@ -120,7 +94,7 @@ func TestResourceGraph_Delete(t *testing.T) {
 }
 
 func TestResourceGraph_GetByApplication(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	// Add multiple resources for different applications
 	nodes := []*ResourceNode{
@@ -156,7 +130,7 @@ func TestResourceGraph_GetByApplication(t *testing.T) {
 }
 
 func TestResourceGraph_GetByType(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	deploymentGK := schema.GroupKind{Group: "apps", Kind: "Deployment"}
 	serviceGK := schema.GroupKind{Group: "", Kind: "Service"}
@@ -188,7 +162,7 @@ func TestResourceGraph_GetByType(t *testing.T) {
 }
 
 func TestResourceGraph_ParentChildRelationships(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	deploymentKey := kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "deploy1"}
 	replicaSetKey := kube.ResourceKey{Group: "apps", Kind: "ReplicaSet", Namespace: "default", Name: "rs1"}
@@ -238,7 +212,7 @@ func TestResourceGraph_ParentChildRelationships(t *testing.T) {
 }
 
 func TestResourceGraph_GetAllTypes(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	nodes := []*ResourceNode{
 		{Key: kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "deploy1"}},
@@ -265,7 +239,7 @@ func TestResourceGraph_GetAllTypes(t *testing.T) {
 }
 
 func TestResourceGraph_GetAllApplications(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	nodes := []*ResourceNode{
 		{Key: kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "deploy1"}, ManagedBy: "app1"},
@@ -291,7 +265,7 @@ func TestResourceGraph_GetAllApplications(t *testing.T) {
 }
 
 func TestResourceGraph_GetMetrics(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	nodes := []*ResourceNode{
 		{Key: kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "deploy1"}, ManagedBy: "app1"},
@@ -315,7 +289,7 @@ func TestResourceGraph_GetMetrics(t *testing.T) {
 }
 
 func TestResourceGraph_DeleteWithRelationships(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	parentKey := kube.ResourceKey{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "deploy1"}
 	childKey := kube.ResourceKey{Group: "apps", Kind: "ReplicaSet", Namespace: "default", Name: "rs1"}
@@ -351,7 +325,7 @@ func TestResourceGraph_DeleteWithRelationships(t *testing.T) {
 }
 
 func TestResourceGraph_ConcurrentAccess(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	// Test concurrent adds
 	done := make(chan bool)
@@ -395,7 +369,7 @@ func TestResourceGraph_ConcurrentAccess(t *testing.T) {
 
 // TestResourceGraph_LabelIndexOptimization tests the optimized label index update logic
 func TestResourceGraph_LabelIndexOptimization(t *testing.T) {
-	graph := NewResourceGraph(32)
+	graph := NewResourceGraph()
 
 	t.Run("add node with labels", func(t *testing.T) {
 		node := &ResourceNode{

@@ -1,9 +1,11 @@
 package graphcache
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	graphcore "github.com/argoproj/argo-cd/gitops-engine/pkg/graphcache"
 	"github.com/argoproj/argo-cd/gitops-engine/pkg/cache"
 	"github.com/argoproj/argo-cd/gitops-engine/pkg/utils/kube"
 	"github.com/stretchr/testify/assert"
@@ -11,15 +13,18 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	fakedynamic "k8s.io/client-go/dynamic/fake"
+	kubetesting "k8s.io/client-go/testing"
 
 	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 )
 
-func makeResourceNode(group, kind, namespace, name, version, uid, managedBy string) *ResourceNode {
-	return &ResourceNode{
+func makeResourceNode(group, kind, namespace, name, version, uid, managedBy string) *graphcore.ResourceNode {
+	return &graphcore.ResourceNode{
 		Key: kube.ResourceKey{
 			Group:     group,
 			Kind:      kind,
@@ -36,7 +41,7 @@ func makeResourceNode(group, kind, namespace, name, version, uid, managedBy stri
 
 func TestNodeToResourceNode(t *testing.T) {
 	node := makeResourceNode("apps", "Deployment", "default", "nginx", "v1", "uid-1", "myapp")
-	node.Parents = []ParentRef{
+	node.Parents = []graphcore.ParentRef{
 		{
 			ResourceKey: kube.ResourceKey{Group: "", Kind: "Namespace", Name: "default"},
 			UID:         "ns-uid",
@@ -57,7 +62,7 @@ func TestNodeToResourceNode(t *testing.T) {
 
 func TestNodeToCacheResource(t *testing.T) {
 	node := makeResourceNode("apps", "Deployment", "default", "nginx", "v1", "uid-1", "myapp")
-	node.Info = &ResourceMetadata{
+	node.Info = &graphcore.ResourceMetadata{
 		OwnerRefs: []metav1.OwnerReference{
 			{
 				APIVersion: "apps/v1",
@@ -85,7 +90,7 @@ func TestNodeToCacheResource_NilInfo(t *testing.T) {
 }
 
 func TestClusterCacheAdapter_OnResourceUpdated(t *testing.T) {
-	graph := NewResourceGraph(4)
+	graph := graphcore.NewResourceGraph()
 	gc := &GraphCache{
 		graph: graph,
 	}
@@ -118,7 +123,7 @@ func TestClusterCacheAdapter_OnResourceUpdated(t *testing.T) {
 }
 
 func TestClusterCacheAdapter_OnEvent(t *testing.T) {
-	graph := NewResourceGraph(4)
+	graph := graphcore.NewResourceGraph()
 	gc := &GraphCache{
 		graph: graph,
 	}
@@ -148,7 +153,7 @@ func TestClusterCacheAdapter_OnEvent(t *testing.T) {
 }
 
 func TestClusterCacheAdapter_MultipleHandlers(t *testing.T) {
-	graph := NewResourceGraph(4)
+	graph := graphcore.NewResourceGraph()
 	gc := &GraphCache{
 		graph: graph,
 	}
@@ -174,7 +179,7 @@ func TestClusterCacheAdapter_MultipleHandlers(t *testing.T) {
 }
 
 func TestClusterCacheAdapter_EnsureSynced(t *testing.T) {
-	graph := NewResourceGraph(4)
+	graph := graphcore.NewResourceGraph()
 	gc := &GraphCache{
 		graph: graph,
 	}
@@ -204,12 +209,12 @@ func TestClusterCacheAdapter_EnsureSynced(t *testing.T) {
 }
 
 func TestClusterCacheAdapter_IterateHierarchy(t *testing.T) {
-	graph := NewResourceGraph(4)
+	graph := graphcore.NewResourceGraph()
 
 	// Add parent and child
 	parent := makeResourceNode("apps", "Deployment", "default", "nginx", "v1", "deploy-uid", "myapp")
 	child := makeResourceNode("apps", "ReplicaSet", "default", "nginx-abc", "v1", "rs-uid", "myapp")
-	child.Parents = []ParentRef{
+	child.Parents = []graphcore.ParentRef{
 		{ResourceKey: parent.Key, UID: parent.UID},
 	}
 
@@ -233,11 +238,11 @@ func TestClusterCacheAdapter_IterateHierarchy(t *testing.T) {
 }
 
 func TestClusterCacheAdapter_IterateHierarchyV2(t *testing.T) {
-	graph := NewResourceGraph(4)
+	graph := graphcore.NewResourceGraph()
 
 	parent := makeResourceNode("apps", "Deployment", "default", "nginx", "v1", "deploy-uid", "myapp")
 	child := makeResourceNode("apps", "ReplicaSet", "default", "nginx-abc", "v1", "rs-uid", "myapp")
-	child.Parents = []ParentRef{
+	child.Parents = []graphcore.ParentRef{
 		{ResourceKey: parent.Key, UID: parent.UID},
 	}
 
@@ -262,7 +267,7 @@ func TestClusterCacheAdapter_IterateHierarchyV2(t *testing.T) {
 }
 
 func TestClusterCacheAdapter_FindResources(t *testing.T) {
-	graph := NewResourceGraph(4)
+	graph := graphcore.NewResourceGraph()
 
 	node1 := makeResourceNode("apps", "Deployment", "default", "nginx", "v1", "uid-1", "myapp")
 	node2 := makeResourceNode("", "Pod", "default", "nginx-pod", "v1", "uid-2", "myapp")
@@ -293,11 +298,11 @@ func TestClusterCacheAdapter_FindResources(t *testing.T) {
 }
 
 func TestClusterCacheAdapter_GetNamespaceTopLevelResources(t *testing.T) {
-	graph := NewResourceGraph(4)
+	graph := graphcore.NewResourceGraph()
 
 	root := makeResourceNode("apps", "Deployment", "default", "nginx", "v1", "uid-1", "myapp")
 	child := makeResourceNode("apps", "ReplicaSet", "default", "nginx-rs", "v1", "uid-2", "myapp")
-	child.Parents = []ParentRef{{ResourceKey: root.Key, UID: root.UID}}
+	child.Parents = []graphcore.ParentRef{{ResourceKey: root.Key, UID: root.UID}}
 
 	graph.AddOrUpdate(root)
 	graph.AddOrUpdate(child)
@@ -315,7 +320,7 @@ func TestClusterCacheAdapter_GetNamespaceTopLevelResources(t *testing.T) {
 }
 
 func TestClusterCacheAdapter_GetManagedLiveObjsForApp(t *testing.T) {
-	graph := NewResourceGraph(4)
+	graph := graphcore.NewResourceGraph()
 
 	node := makeResourceNode("apps", "Deployment", "default", "nginx", "v1", "uid-1", "myapp")
 	node.Resource = &unstructured.Unstructured{
@@ -348,26 +353,16 @@ func TestClusterCacheAdapter_GetManagedLiveObjsForApp(t *testing.T) {
 }
 
 func TestClusterCacheAdapter_GetClusterInfo(t *testing.T) {
-	graph := NewResourceGraph(4)
+	config := Config{
+		DynamicClient:   fakedynamic.NewSimpleDynamicClient(runtime.NewScheme()),
+		DiscoveryClient: &fakediscovery.FakeDiscovery{Fake: &kubetesting.Fake{}},
+		TrackingMethod:  graphcore.TrackingMethodLabel,
+	}
+	gc, _ := NewGraphCache(context.Background(), config)
 
 	// Add a resource so we can verify the count
 	node := makeResourceNode("apps", "Deployment", "default", "nginx", "v1", "uid-1", "myapp")
-	graph.AddOrUpdate(node)
-
-	wm := &SelectiveWatchManager{
-		watches: make(map[schema.GroupKind]*WatchHandle),
-		metrics: WatchMetrics{WatchesByType: make(map[schema.GroupKind]int), EventsByType: make(map[watch.EventType]int64)},
-	}
-
-	gc := &GraphCache{
-		graph:        graph,
-		watchManager: wm,
-		metrics: CacheMetrics{
-			ResourcesByType:        make(map[schema.GroupKind]int),
-			ResourcesByApplication: make(map[string]int),
-			WatchesByType:          make(map[schema.GroupKind]bool),
-		},
-	}
+	gc.graph.AddOrUpdate(node)
 
 	// GetClusterInfo calls GetServerVersion which needs a discovery client,
 	// so we test the metrics portion directly

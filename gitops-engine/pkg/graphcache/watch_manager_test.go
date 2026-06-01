@@ -12,6 +12,7 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
 	kubetesting "k8s.io/client-go/testing"
+	"k8s.io/klog/v2/textlogger"
 )
 
 type mockDiscovery struct {
@@ -38,6 +39,7 @@ func TestNewSelectiveWatchManager(t *testing.T) {
 		[]string{"argocd"},
 		nil,
 		DefaultGraphConfig(),
+		textlogger.NewLogger(textlogger.NewConfig()),
 	)
 
 	assert.NotNil(t, wm)
@@ -77,6 +79,7 @@ func TestEnsureWatch_ClusterScoped(t *testing.T) {
 		[]string{"argocd"}, // Should be ignored for cluster scoped
 		nil,
 		DefaultGraphConfig(),
+		textlogger.NewLogger(textlogger.NewConfig()),
 	)
 
 	gk := schema.GroupKind{Group: "", Kind: "Node"}
@@ -133,6 +136,7 @@ func TestEnsureWatch_DynamicNamespace(t *testing.T) {
 		namespaces,
 		nil,
 		DefaultGraphConfig(),
+		textlogger.NewLogger(textlogger.NewConfig()),
 	)
 
 	gk := schema.GroupKind{Group: "apps", Kind: "Deployment"}
