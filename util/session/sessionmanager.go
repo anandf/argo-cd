@@ -28,10 +28,11 @@ import (
 
 	"github.com/argoproj/argo-cd/v3/server/rbacpolicy"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/client/listers/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/common"
-	"github.com/argoproj/argo-cd/v3/pkg/client/listers/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/dex"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	httputil "github.com/argoproj/argo-cd/v3/util/http"
 	jwtutil "github.com/argoproj/argo-cd/v3/util/jwt"
 	oidcutil "github.com/argoproj/argo-cd/v3/util/oidc"

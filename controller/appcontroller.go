@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/diff"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	synccommon "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	resourceutil "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/resource"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
@@ -47,6 +46,13 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
+	appv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned"
+	"github.com/argoproj/argo-cd/api/v3/pkg/client/informers/externalversions/application/v1alpha1"
+	applisters "github.com/argoproj/argo-cd/api/v3/pkg/client/listers/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	commitclient "github.com/argoproj/argo-cd/v3/commitserver/apiclient"
 	"github.com/argoproj/argo-cd/v3/common"
 	statecache "github.com/argoproj/argo-cd/v3/controller/cache"
@@ -54,24 +60,19 @@ import (
 	hydratortypes "github.com/argoproj/argo-cd/v3/controller/hydrator/types"
 	"github.com/argoproj/argo-cd/v3/controller/metrics"
 	"github.com/argoproj/argo-cd/v3/controller/sharding"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
-	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned"
-	"github.com/argoproj/argo-cd/v3/pkg/client/informers/externalversions/application/v1alpha1"
-	applisters "github.com/argoproj/argo-cd/v3/pkg/client/listers/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	applog "github.com/argoproj/argo-cd/v3/util/app/log"
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	argodiff "github.com/argoproj/argo-cd/v3/util/argo/diff"
 	"github.com/argoproj/argo-cd/v3/util/argo/normalizers"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	"github.com/argoproj/argo-cd/v3/util/stats"
+
+	"github.com/argoproj/argo-cd/api/v3/util/glob"
 
 	"github.com/argoproj/argo-cd/v3/pkg/ratelimiter"
 	appstatecache "github.com/argoproj/argo-cd/v3/util/cache/appstate"
 	"github.com/argoproj/argo-cd/v3/util/db"
 	"github.com/argoproj/argo-cd/v3/util/errors"
-	"github.com/argoproj/argo-cd/v3/util/glob"
 	"github.com/argoproj/argo-cd/v3/util/helm"
 	logutils "github.com/argoproj/argo-cd/v3/util/log"
 	settings_util "github.com/argoproj/argo-cd/v3/util/settings"
@@ -606,7 +607,7 @@ func (ctrl *ApplicationController) getResourceTree(destCluster *appv1.Cluster, a
 				Group:     managedResource.Group,
 				Namespace: managedResource.Namespace,
 				Health: &appv1.HealthStatus{
-					Status: health.HealthStatusMissing,
+					Status: appv1.HealthStatusMissing,
 				},
 			})
 		} else {
@@ -1443,7 +1444,7 @@ func (ctrl *ApplicationController) finalizeApplicationDeletion(ctx context.Conte
 
 			if ctrl.shouldBeDeleted(app, objsMap[k]) {
 				objs = append(objs, objsMap[k])
-				if res, ok := app.Status.FindResource(k); ok && res.RequiresDeletionConfirmation && !deletionApproved {
+				if res, ok := app.Status.FindResource(appv1.ResourceKey(k)); ok && res.RequiresDeletionConfirmation && !deletionApproved {
 					logCtx.Infof("Resource %v requires manual confirmation to delete", k)
 					return nil
 				}
@@ -1617,7 +1618,7 @@ func (ctrl *ApplicationController) processRequestedAppOperation(app *appv1.Appli
 		if r := recover(); r != nil {
 			logCtx.Errorf("Recovered from panic: %+v\n%s", r, debug.Stack())
 			span.SetStatus(otel_codes.Error, fmt.Sprintf("%v", r))
-			state.Phase = synccommon.OperationError
+			state.Phase = appv1.OperationError
 			if rerr, ok := r.(error); ok {
 				span.RecordError(rerr)
 				state.Message = rerr.Error()
@@ -1662,7 +1663,7 @@ func (ctrl *ApplicationController) processRequestedAppOperation(app *appv1.Appli
 	defer func() {
 		// Re-enqueue the app onto the operation queue to keep polling the in-progress sync.
 		// Cap the delay by the remaining sync timeout so a timeout is enforced promptly.
-		if ctrl.syncTimeout > 0 && state != nil && state.Phase != synccommon.OperationTerminating {
+		if ctrl.syncTimeout > 0 && state != nil && state.Phase != appv1.OperationTerminating {
 			if remaining := time.Until(state.StartedAt.Add(ctrl.syncTimeout)); remaining < requeueAfter {
 				requeueAfter = remaining
 			}
@@ -1674,7 +1675,7 @@ func (ctrl *ApplicationController) processRequestedAppOperation(app *appv1.Appli
 	if isOperationInProgress(app) {
 		state = app.Status.OperationState.DeepCopy()
 		switch {
-		case state.Phase == synccommon.OperationTerminating:
+		case state.Phase == appv1.OperationTerminating:
 			logCtx.Infof("Resuming in-progress operation. phase: %s, message: %s", state.Phase, state.Message)
 			// state.Message may just be a leftover sync message: the Terminate UI/API action
 			// only sets Phase to Terminating, it does not update Message. Only use it as the
@@ -1683,16 +1684,16 @@ func (ctrl *ApplicationController) processRequestedAppOperation(app *appv1.Appli
 				terminatingCause = state.Message
 			}
 		case ctrl.syncTimeout != time.Duration(0) && time.Now().After(state.StartedAt.Add(ctrl.syncTimeout)):
-			state.Phase = synccommon.OperationTerminating
+			state.Phase = appv1.OperationTerminating
 			state.Message = "operation is terminating due to timeout"
 			terminatingCause = "controller sync timeout"
 			ctrl.setOperationState(ctx, app, state)
 			logCtx.Infof("Terminating in-progress operation due to timeout. Started at: %v, timeout: %v", state.StartedAt, ctrl.syncTimeout)
-		case state.Phase == synccommon.OperationRunning && state.FinishedAt != nil:
+		case state.Phase == appv1.OperationRunning && state.FinishedAt != nil:
 			// Failed operation with retry strategy might be in-progress and has completion time
 			retryAt, err := app.Status.OperationState.Operation.Retry.NextRetryAt(state.FinishedAt.Time, state.RetryCount)
 			if err != nil {
-				state.Phase = synccommon.OperationError
+				state.Phase = appv1.OperationError
 				state.Message = err.Error()
 				ctrl.setOperationState(ctx, app, state)
 				return
@@ -1731,42 +1732,42 @@ func (ctrl *ApplicationController) processRequestedAppOperation(app *appv1.Appli
 	}
 	ts.AddCheckpoint("initial_operation_stage_ms")
 
-	terminating := state.Phase == synccommon.OperationTerminating
+	terminating := state.Phase == appv1.OperationTerminating
 
 	project, err := ctrl.getAppProj(app)
 	if err == nil {
 		// Start or resume the sync
 		ctrl.appStateManager.SyncAppState(ctx, app, project, state)
 	} else {
-		state.Phase = synccommon.OperationError
+		state.Phase = appv1.OperationError
 		state.Message = fmt.Sprintf("Failed to load application project: %v", err)
 	}
 	ts.AddCheckpoint("sync_app_state_ms")
 
 	switch state.Phase {
-	case synccommon.OperationRunning:
+	case appv1.OperationRunning:
 		// It's possible for an app to be terminated while we were operating on it. We do not want
 		// to clobber the Terminated state with Running. Get the latest app state to check for this.
 		freshApp, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(ctx, app.Name, metav1.GetOptions{})
 		if err == nil {
-			if freshApp.Status.OperationState != nil && freshApp.Status.OperationState.Phase == synccommon.OperationTerminating {
-				state.Phase = synccommon.OperationTerminating
+			if freshApp.Status.OperationState != nil && freshApp.Status.OperationState.Phase == appv1.OperationTerminating {
+				state.Phase = appv1.OperationTerminating
 				state.Message = "operation is terminating"
 				// after this, we will get requeued to the workqueue, but next time the
 				// SyncAppState will operate in a Terminating phase, allowing the worker to perform
 				// cleanup (e.g. delete jobs, workflows, etc...)
 			}
 		}
-	case synccommon.OperationFailed, synccommon.OperationError:
+	case appv1.OperationFailed, appv1.OperationError:
 		if !terminating && (state.RetryCount < state.Operation.Retry.Limit || state.Operation.Retry.Limit < 0) {
 			now := metav1.Now()
 			if retryAt, err := state.Operation.Retry.NextRetryAt(now.Time, state.RetryCount); err != nil {
-				state.Phase = synccommon.OperationError
+				state.Phase = appv1.OperationError
 				state.Message = fmt.Sprintf("%s (failed to retry: %v)", state.Message, err)
 			} else {
 				// Set FinishedAt explicitly on a Running phase. This is a unique condition that will allow this
 				// function to perform a retry the next time the operation is processed.
-				state.Phase = synccommon.OperationRunning
+				state.Phase = appv1.OperationRunning
 				state.FinishedAt = &now
 				state.RetryCount++
 				state.Message = fmt.Sprintf("%s. Retrying attempt #%d at %s.", state.Message, state.RetryCount, retryAt.UTC().Format(time.RFC3339))
@@ -1888,14 +1889,14 @@ func (ctrl *ApplicationController) persistOperationStateFallback(app *appv1.Appl
 	// app.Status.OperationState, so fields set in this reconcile (Operation, FinishedAt)
 	// are not lost.
 	fallbackStatus := state.DeepCopy()
-	fallbackStatus.Phase = synccommon.OperationError
+	fallbackStatus.Phase = appv1.OperationError
 	fallbackStatus.Message = nonRetryableError.Error()
 
 	// alreadyTerminating is true once we've already asked the operation to terminate
 	// (below) and are back here because even the terminated state was too large to
 	// persist. In that case we give up and finalize as an error instead of terminating
 	// again, which would otherwise loop forever.
-	alreadyTerminating := app.Status.OperationState != nil && app.Status.OperationState.Phase == synccommon.OperationTerminating
+	alreadyTerminating := app.Status.OperationState != nil && app.Status.OperationState.Phase == appv1.OperationTerminating
 
 	if isOperationStatePayloadTooLargeError(nonRetryableError) {
 		sizeLimitMessage := operationStateSizeLimitMessagePrefix + " and could not be persisted. Reduce the number of managed resources, set ApplyOutOfSyncOnly=true, lower spec.revisionHistoryLimit, or split the Application. error: " + nonRetryableError.Error()
@@ -1905,10 +1906,10 @@ func (ctrl *ApplicationController) persistOperationStateFallback(app *appv1.Appl
 			// reconcile drives the operation through the normal Terminating path (same as the
 			// "Terminate" UI/API action) and cleans up any in-flight hooks before we give up.
 			logCtx.WithError(nonRetryableError).Warn("Application operation status exceeds the Kubernetes resource size limit; requesting operation termination")
-			fallbackStatus.Phase = synccommon.OperationTerminating
+			fallbackStatus.Phase = appv1.OperationTerminating
 		} else {
 			logCtx.WithError(nonRetryableError).Warn("Application operation status still exceeds the Kubernetes resource size limit after termination; falling back to operation error")
-			fallbackStatus.Phase = synccommon.OperationError
+			fallbackStatus.Phase = appv1.OperationError
 		}
 		fallbackStatus.Message = sizeLimitMessage
 
@@ -1972,7 +1973,7 @@ func (ctrl *ApplicationController) persistOperationStateFallback(app *appv1.Appl
 			minimalFinishedAt = &now
 		}
 		minimalStatus := &appv1.OperationState{
-			Phase:      synccommon.OperationError,
+			Phase:      appv1.OperationError,
 			Message:    operationStateSizeLimitMessagePrefix + " and could not be persisted, even after dropping sync results. error: " + fbErr.Error(),
 			StartedAt:  fallbackStatus.StartedAt,
 			FinishedAt: minimalFinishedAt,
@@ -2230,7 +2231,7 @@ func (ctrl *ApplicationController) processAppRefreshQueueItem() (processNext boo
 	now := metav1.Now()
 	if hasErrors {
 		app.Status.Sync.Status = appv1.SyncStatusCodeUnknown
-		app.Status.Health.Status = health.HealthStatusUnknown
+		app.Status.Health.Status = appv1.HealthStatusUnknown
 		app.Status.Health.Message = ""
 		patchDuration = ctrl.persistReconciliationStatus(ctx, origApp, &app.Status)
 
@@ -3128,7 +3129,7 @@ func (ctrl *ApplicationController) autoSync(ctx context.Context, app *appv1.Appl
 // it will return false, indicating that a new sync should be attempted.
 // When newRevisionHasChanges is false, due to commits not having direct changes on the application, it will not compare the revision(s), but only the sources.
 // It also returns the last synced revisions if any, and the result of that last sync operation.
-func alreadyAttemptedSync(app *appv1.Application, desiredRevisions []string, newRevisionHasChanges bool) (bool, []string, synccommon.OperationPhase) {
+func alreadyAttemptedSync(app *appv1.Application, desiredRevisions []string, newRevisionHasChanges bool) (bool, []string, appv1.OperationPhase) {
 	if app.Status.OperationState == nil {
 		// The operation state may be removed when new operations are triggered
 		return false, []string{}, ""

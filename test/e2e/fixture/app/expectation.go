@@ -7,14 +7,13 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 )
 
@@ -82,10 +81,10 @@ func All(es ...Expectation) Expectation {
 	}
 }
 
-func OperationPhaseIs(expected common.OperationPhase) Expectation {
+func OperationPhaseIs(expected v1alpha1.OperationPhase) Expectation {
 	return func(c *Consequences) (state, string) {
 		operationState := c.app().Status.OperationState
-		actual := common.OperationRunning
+		actual := v1alpha1.OperationRunning
 		msg := ""
 		if operationState != nil {
 			actual = operationState.Phase
@@ -231,7 +230,7 @@ func Namespace(name string, block func(app *v1alpha1.Application, ns *corev1.Nam
 	}
 }
 
-func HealthIs(expected health.HealthStatusCode) Expectation {
+func HealthIs(expected v1alpha1.HealthStatusCode) Expectation {
 	return func(c *Consequences) (state, string) {
 		actual := c.app().Status.Health.Status
 		return simple(actual == expected, fmt.Sprintf("health to should %s, is %s", expected, actual))
@@ -252,29 +251,29 @@ func ResourceSyncStatusWithNamespaceIs(kind, resource, namespace string, expecte
 	}
 }
 
-func ResourceHealthIs(kind, resource string, expected health.HealthStatusCode) Expectation {
+func ResourceHealthIs(kind, resource string, expected v1alpha1.HealthStatusCode) Expectation {
 	return func(c *Consequences) (state, string) {
-		var actual health.HealthStatusCode
+		var actual v1alpha1.HealthStatusCode
 		resourceHealth := c.resource(kind, resource, "").Health
 		if resourceHealth != nil {
 			actual = resourceHealth.Status
 		} else {
 			// Some resources like ConfigMap may not have health status when they are okay
-			actual = health.HealthStatusHealthy
+			actual = v1alpha1.HealthStatusHealthy
 		}
 		return simple(actual == expected, fmt.Sprintf("resource '%s/%s' health should be %s, is %s", kind, resource, expected, actual))
 	}
 }
 
-func ResourceHealthWithNamespaceIs(kind, resource, namespace string, expected health.HealthStatusCode) Expectation {
+func ResourceHealthWithNamespaceIs(kind, resource, namespace string, expected v1alpha1.HealthStatusCode) Expectation {
 	return func(c *Consequences) (state, string) {
-		var actual health.HealthStatusCode
+		var actual v1alpha1.HealthStatusCode
 		resourceHealth := c.resource(kind, resource, namespace).Health
 		if resourceHealth != nil {
 			actual = resourceHealth.Status
 		} else {
 			// Some resources like ConfigMap may not have health status when they are okay
-			actual = health.HealthStatusHealthy
+			actual = v1alpha1.HealthStatusHealthy
 		}
 		return simple(actual == expected, fmt.Sprintf("resource '%s/%s' health should be %s, is %s", kind, resource, expected, actual))
 	}

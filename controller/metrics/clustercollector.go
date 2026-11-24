@@ -9,7 +9,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 
-	argoappv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	argoappv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	metricsutil "github.com/argoproj/argo-cd/v3/util/metrics"
 )
 

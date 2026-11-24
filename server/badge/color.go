@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"image/color"
 
-	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
+	appv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 )
 
 var (
@@ -17,13 +15,13 @@ var (
 	Red    = color.RGBA{167, 46, 38, 255} // #a72e26
 	Grey   = color.RGBA{41, 52, 61, 255}  // #29343D
 
-	HealthStatusColors = map[health.HealthStatusCode]color.RGBA{
-		health.HealthStatusDegraded:    Red,
-		health.HealthStatusHealthy:     Green,
-		health.HealthStatusMissing:     Purple,
-		health.HealthStatusProgressing: Blue,
-		health.HealthStatusSuspended:   Grey,
-		health.HealthStatusUnknown:     Purple,
+	HealthStatusColors = map[appv1.HealthStatusCode]color.RGBA{
+		appv1.HealthStatusDegraded:    Red,
+		appv1.HealthStatusHealthy:     Green,
+		appv1.HealthStatusMissing:     Purple,
+		appv1.HealthStatusProgressing: Blue,
+		appv1.HealthStatusSuspended:   Grey,
+		appv1.HealthStatusUnknown:     Purple,
 	}
 
 	SyncStatusColors = map[appv1.SyncStatusCode]color.RGBA{

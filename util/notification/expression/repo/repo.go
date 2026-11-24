@@ -16,7 +16,7 @@ import (
 	giturls "github.com/chainguard-dev/git-urls"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 )
 
 var gitSuffix = regexp.MustCompile(`\.git$`)

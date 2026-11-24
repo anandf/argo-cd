@@ -26,6 +26,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned"
+	applisters "github.com/argoproj/argo-cd/api/v3/pkg/client/listers/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/util/security"
+
 	appsettemplate "github.com/argoproj/argo-cd/v3/applicationset/controllers/template"
 	"github.com/argoproj/argo-cd/v3/applicationset/generators"
 	"github.com/argoproj/argo-cd/v3/applicationset/services"
@@ -34,9 +39,6 @@ import (
 	argocommon "github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/applicationset"
 	eventspb "github.com/argoproj/argo-cd/v3/pkg/apiclient/events"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned"
-	applisters "github.com/argoproj/argo-cd/v3/pkg/client/listers/application/v1alpha1"
 	repoapiclient "github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/server/broadcast"
 	applog "github.com/argoproj/argo-cd/v3/util/app/log"
@@ -45,7 +47,6 @@ import (
 	"github.com/argoproj/argo-cd/v3/util/db"
 	"github.com/argoproj/argo-cd/v3/util/github_app"
 	"github.com/argoproj/argo-cd/v3/util/rbac"
-	"github.com/argoproj/argo-cd/v3/util/security"
 	"github.com/argoproj/argo-cd/v3/util/session"
 	"github.com/argoproj/argo-cd/v3/util/settings"
 

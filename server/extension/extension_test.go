@@ -18,7 +18,8 @@ import (
 
 	"github.com/argoproj/argo-cd/v3/util/rbac"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/server/extension"
 	"github.com/argoproj/argo-cd/v3/server/extension/mocks"
 	dbmocks "github.com/argoproj/argo-cd/v3/util/db/mocks"

@@ -4,13 +4,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	applicationpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	utilio "github.com/argoproj/argo-cd/v3/util/io"
 )
@@ -148,7 +148,7 @@ func (c *Consequences) resource(kind, name, namespace string) v1alpha1.ResourceS
 	}
 	return v1alpha1.ResourceStatus{
 		Health: &v1alpha1.HealthStatus{
-			Status:  health.HealthStatusMissing,
+			Status:  v1alpha1.HealthStatusMissing,
 			Message: "not found",
 		},
 	}

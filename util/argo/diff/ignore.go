@@ -7,9 +7,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/util/glob"
+
 	"github.com/argoproj/argo-cd/v3/common"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	"github.com/argoproj/argo-cd/v3/util/glob"
 )
 
 // ignoreDifferencesAnnotationValue holds list of paths which should be ignored during comparison with live state from argocd.argoproj.io/ignore-differences annotation value.

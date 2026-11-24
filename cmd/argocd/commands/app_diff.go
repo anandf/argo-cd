@@ -22,6 +22,8 @@ import (
 
 	resourceutil "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/resource"
 
+	argoappv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/cmd/argocd/commands/headless"
 	argocommon "github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/controller"
@@ -29,7 +31,6 @@ import (
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
 	clusterpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/cluster"
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/settings"
-	argoappv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	repoapiclient "github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/reposerver/repository"
 	"github.com/argoproj/argo-cd/v3/util/argo"

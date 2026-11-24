@@ -12,7 +12,6 @@ import (
 	cachemocks "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/cache/mocks"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/diff"
 	diffmocks "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/diff/mocks"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	synccommon "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/testing"
@@ -30,9 +29,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/controller/testdata"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/test"
 	argodiff "github.com/argoproj/argo-cd/v3/util/argo/diff"
@@ -1164,12 +1164,12 @@ func TestSetHealth(t *testing.T) {
 	compRes, err := ctrl.appStateManager.CompareAppState(t.Context(), app, &defaultProj, revisions, sources, false, false, nil, false)
 	require.NoError(t, err)
 
-	assert.Equal(t, health.HealthStatusHealthy, compRes.healthStatus)
+	assert.Equal(t, v1alpha1.HealthStatusHealthy, compRes.healthStatus)
 }
 
 func TestPreserveStatusTimestamp(t *testing.T) {
 	timestamp := metav1.Now()
-	app := newFakeAppWithHealthAndTime(health.HealthStatusHealthy, timestamp)
+	app := newFakeAppWithHealthAndTime(v1alpha1.HealthStatusHealthy, timestamp)
 	deployment := kube.MustToUnstructured(&appsv1.Deployment{
 		APIVersion: "apps/v1",
 		Kind:       "Deployment",
@@ -1196,7 +1196,7 @@ func TestPreserveStatusTimestamp(t *testing.T) {
 	compRes, err := ctrl.appStateManager.CompareAppState(t.Context(), app, &defaultProj, revisions, sources, false, false, nil, false)
 	require.NoError(t, err)
 
-	assert.Equal(t, health.HealthStatusHealthy, compRes.healthStatus)
+	assert.Equal(t, v1alpha1.HealthStatusHealthy, compRes.healthStatus)
 }
 
 func TestSetHealthSelfReferencedApp(t *testing.T) {
@@ -1229,7 +1229,7 @@ func TestSetHealthSelfReferencedApp(t *testing.T) {
 	compRes, err := ctrl.appStateManager.CompareAppState(t.Context(), app, &defaultProj, revisions, sources, false, false, nil, false)
 	require.NoError(t, err)
 
-	assert.Equal(t, health.HealthStatusHealthy, compRes.healthStatus)
+	assert.Equal(t, v1alpha1.HealthStatusHealthy, compRes.healthStatus)
 }
 
 func TestSetManagedResourcesWithOrphanedResources(t *testing.T) {
@@ -1304,7 +1304,7 @@ func TestReturnUnknownComparisonStateOnSettingLoadError(t *testing.T) {
 	compRes, err := ctrl.appStateManager.CompareAppState(t.Context(), app, &defaultProj, revisions, sources, false, false, nil, false)
 	require.NoError(t, err)
 
-	assert.Equal(t, health.HealthStatusUnknown, compRes.healthStatus)
+	assert.Equal(t, v1alpha1.HealthStatusUnknown, compRes.healthStatus)
 	assert.Equal(t, v1alpha1.SyncStatusCodeUnknown, compRes.syncStatus.Status)
 }
 
@@ -1589,7 +1589,7 @@ func TestValidSourceIntegrity(t *testing.T) {
 }
 
 func TestComparisonResult_GetHealthStatus(t *testing.T) {
-	status := health.HealthStatusMissing
+	status := v1alpha1.HealthStatusMissing
 	res := comparisonResult{
 		healthStatus: status,
 	}

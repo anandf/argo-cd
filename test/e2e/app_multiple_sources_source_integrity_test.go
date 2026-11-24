@@ -3,11 +3,10 @@ package e2e
 import (
 	"testing"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"k8s.io/utils/ptr"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 )
@@ -64,9 +63,9 @@ func TestMultiSourceSourceIntegrityAllFailed(t *testing.T) {
 		CreateMultiSourceAppFromFile(oneShotSync).
 		Sync().
 		Then().
-		Expect(OperationPhaseIs(common.OperationError)).
+		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: source uno: Failed verifying revision")).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: source 2 of 2: Failed verifying revision")).
 		Expect(Condition(ApplicationConditionComparisonError, "unsigned (key_id=)")).
@@ -77,9 +76,9 @@ func TestMultiSourceSourceIntegrityAllFailed(t *testing.T) {
 		IgnoreErrors().
 		Sync().
 		Then().
-		Expect(OperationPhaseIs(common.OperationSucceeded)).
+		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(NoConditions())
 }
 
@@ -109,9 +108,9 @@ func TestMultiSourceSourceIntegritySomeFailed(t *testing.T) {
 		IgnoreErrors().
 		CreateMultiSourceAppFromFile(oneShotSync).
 		Then().
-		Expect(OperationPhaseIs(common.OperationError)).
+		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, message))
 }
 
@@ -140,9 +139,9 @@ func TestMultiSourceSourceIntegrityAllValid(t *testing.T) {
 		CreateMultiSourceAppFromFile(oneShotSync).
 		Sync().
 		Then().
-		Expect(OperationPhaseIs(common.OperationSucceeded)).
+		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(NoConditions()).
 		// Should start failing after key removal
 		Given().

@@ -3,7 +3,8 @@ package e2e
 import (
 	"testing"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 )
 

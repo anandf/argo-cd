@@ -17,7 +17,8 @@ import (
 	clientcmdapiv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"sigs.k8s.io/yaml"
 
-	argoappv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	argoappv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/util/errors"
 )
 

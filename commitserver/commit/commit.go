@@ -285,7 +285,7 @@ func (s *Service) initGitClient(ctx context.Context, logCtx *log.Entry, r *apicl
 
 	// FIXME: make it work for GHE
 	// logCtx.Debugf("Getting user info for repo credentials")
-	// gitCreds := r.Repo.GetGitCreds(s.gitCredsStore)
+	// gitCreds := repocreds.GetGitCreds(r.Repo, s.gitCredsStore)
 	// startTime := time.Now()
 	// authorName, authorEmail, err := gitCreds.GetUserInfo(ctx)
 	// s.metricsServer.ObserveUserInfoRequestDuration(r.Repo.Repo, getCredentialType(r.Repo), time.Since(startTime))

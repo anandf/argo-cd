@@ -16,12 +16,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	appv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+	"github.com/argoproj/argo-cd/api/v3/util/hash"
+
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	cacheutil "github.com/argoproj/argo-cd/v3/util/cache"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	"github.com/argoproj/argo-cd/v3/util/git"
-	"github.com/argoproj/argo-cd/v3/util/hash"
 )
 
 var (

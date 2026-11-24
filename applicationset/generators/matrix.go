@@ -13,8 +13,9 @@ import (
 	"dario.cat/mergo"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	argoprojiov1alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/applicationset/utils"
-	argoprojiov1alpha1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 )
 
 var _ Generator = (*MatrixGenerator)(nil)

@@ -19,8 +19,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
-	argoappv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
+	argoappv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/config"
 	"github.com/argoproj/argo-cd/v3/util/errors"

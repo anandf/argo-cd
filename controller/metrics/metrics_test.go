@@ -12,7 +12,6 @@ import (
 	"time"
 
 	gitopsCache "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/cache"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -24,10 +23,11 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/yaml"
 
-	argoappv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
-	appinformer "github.com/argoproj/argo-cd/v3/pkg/client/informers/externalversions"
-	applister "github.com/argoproj/argo-cd/v3/pkg/client/listers/application/v1alpha1"
+	argoappv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+	appinformer "github.com/argoproj/argo-cd/api/v3/pkg/client/informers/externalversions"
+	applister "github.com/argoproj/argo-cd/api/v3/pkg/client/listers/application/v1alpha1"
+
 	settings_util "github.com/argoproj/argo-cd/v3/util/settings"
 
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -664,11 +664,11 @@ argocd_app_sync_total{dest_server="https://localhost:6443",dry_run="false",name=
 `
 
 	fakeApp := newFakeApp(fakeApp)
-	metricsServ.IncSync(fakeApp, "https://localhost:6443", &argoappv1.OperationState{Phase: common.OperationRunning})
-	metricsServ.IncSync(fakeApp, "https://localhost:6443", &argoappv1.OperationState{Phase: common.OperationFailed})
-	metricsServ.IncSync(fakeApp, "https://localhost:6443", &argoappv1.OperationState{Phase: common.OperationError})
-	metricsServ.IncSync(fakeApp, "https://localhost:6443", &argoappv1.OperationState{Phase: common.OperationSucceeded})
-	metricsServ.IncSync(fakeApp, "https://localhost:6443", &argoappv1.OperationState{Phase: common.OperationSucceeded})
+	metricsServ.IncSync(fakeApp, "https://localhost:6443", &argoappv1.OperationState{Phase: argoappv1.OperationRunning})
+	metricsServ.IncSync(fakeApp, "https://localhost:6443", &argoappv1.OperationState{Phase: argoappv1.OperationFailed})
+	metricsServ.IncSync(fakeApp, "https://localhost:6443", &argoappv1.OperationState{Phase: argoappv1.OperationError})
+	metricsServ.IncSync(fakeApp, "https://localhost:6443", &argoappv1.OperationState{Phase: argoappv1.OperationSucceeded})
+	metricsServ.IncSync(fakeApp, "https://localhost:6443", &argoappv1.OperationState{Phase: argoappv1.OperationSucceeded})
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", http.NoBody)
 	require.NoError(t, err)

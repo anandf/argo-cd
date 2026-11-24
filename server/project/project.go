@@ -21,12 +21,13 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned"
+	listersv1alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/client/listers/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
 	eventspb "github.com/argoproj/argo-cd/v3/pkg/apiclient/events"
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/project"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned"
-	listersv1alpha1 "github.com/argoproj/argo-cd/v3/pkg/client/listers/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/server/deeplinks"
 	serverevents "github.com/argoproj/argo-cd/v3/server/events"
 	"github.com/argoproj/argo-cd/v3/server/rbacpolicy"

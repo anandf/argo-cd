@@ -8,12 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 	projectFixture "github.com/argoproj/argo-cd/v3/test/e2e/fixture/project"
@@ -29,7 +28,7 @@ func TestHelmHooksAreCreated(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		Expect(ResourceResultIs(ResourceResult{Version: "v1", Kind: "Pod", Namespace: ctx.DeploymentNamespace(), Name: "hook", Message: "pod/hook created", Images: []string{"quay.io/argoprojlabs/argocd-e2e-container:0.1"}, HookType: HookTypePreSync, Status: ResultCodeSynced, HookPhase: OperationSucceeded, SyncPhase: SyncPhasePreSync}))
 }
@@ -74,7 +73,7 @@ func TestDeclarativeHelm(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
@@ -84,7 +83,7 @@ func TestDeclarativeHelmInvalidValuesFile(t *testing.T) {
 		When().
 		Declarative("declarative-apps/invalid-helm.yaml").
 		Then().
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeUnknown)).
 		Expect(Condition(ApplicationConditionComparisonError, "does-not-exist-values.yaml: no such file or directory"))
 }
@@ -104,7 +103,7 @@ func TestHelmRepo(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
@@ -141,7 +140,7 @@ func TestHelmIgnoreMissingValueFiles(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		When().
 		AppUnSet("--ignore-missing-value-files").
@@ -169,7 +168,7 @@ func TestHelmGlobValueFiles(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		And(func(_ *Application) {
 			val := errors.NewHandler(t).FailOnErr(fixture.Run(".", "kubectl", "-n", ctx.DeploymentNamespace(),
@@ -191,7 +190,7 @@ func TestHelmRecursiveGlobValueFiles(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		And(func(_ *Application) {
 			val := errors.NewHandler(t).FailOnErr(fixture.Run(".", "kubectl", "-n", ctx.DeploymentNamespace(),
@@ -225,7 +224,7 @@ func TestHelmGlobValueFilesIgnoreMissing(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
@@ -331,7 +330,7 @@ func TestHelmCrdHook(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		Expect(ResourceResultNumbering(2))
 }
@@ -499,7 +498,7 @@ func TestHelmValuesHiddenDirectory(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
@@ -603,7 +602,7 @@ func TestHelmOCIRegistry(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
@@ -619,7 +618,7 @@ func TestGitWithHelmOCIRegistryDependencies(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
@@ -638,7 +637,7 @@ func TestHelmOCIRegistryWithDependencies(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
@@ -654,7 +653,7 @@ func TestTemplatesGitWithHelmOCIDependencies(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
@@ -673,7 +672,7 @@ func TestTemplatesHelmOCIWithDependencies(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }
 
@@ -691,6 +690,6 @@ func TestHelmOCIRegistryWithConstraintRevision(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced))
 }

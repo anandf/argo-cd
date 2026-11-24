@@ -7,7 +7,7 @@ package mocks
 import (
 	"context"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/notification/expression/shared"
 	mock "github.com/stretchr/testify/mock"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"

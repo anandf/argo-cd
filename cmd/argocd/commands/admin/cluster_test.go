@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	fakeapps "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	fakeapps "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+
 	cacheutil "github.com/argoproj/argo-cd/v3/util/cache"
 	"github.com/argoproj/argo-cd/v3/util/cache/appstate"
 

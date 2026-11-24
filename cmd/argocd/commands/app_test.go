@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -31,6 +30,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/yaml"
+
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 
 	argocdclient "github.com/argoproj/argo-cd/v3/pkg/apiclient"
 	accountpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/account"
@@ -47,8 +49,6 @@ import (
 	sessionpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/session"
 	settingspkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/settings"
 	versionpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/version"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 )
 
@@ -736,7 +736,7 @@ func TestPrintAppSummaryTable(t *testing.T) {
 					Status: v1alpha1.SyncStatusCodeOutOfSync,
 				},
 				Health: v1alpha1.AppHealthStatus{
-					Status: health.HealthStatusProgressing,
+					Status: v1alpha1.HealthStatusProgressing,
 				},
 			},
 		}
@@ -828,7 +828,7 @@ func TestPrintAppSummaryTable_MultipleSources(t *testing.T) {
 					Status: v1alpha1.SyncStatusCodeOutOfSync,
 				},
 				Health: v1alpha1.AppHealthStatus{
-					Status: health.HealthStatusProgressing,
+					Status: v1alpha1.HealthStatusProgressing,
 				},
 			},
 		}
@@ -1782,7 +1782,7 @@ func TestCheckResourceStatus(t *testing.T) {
 			suspended: true,
 			health:    true,
 			degraded:  true,
-		}, string(health.HealthStatusHealthy), string(v1alpha1.SyncStatusCodeSynced))
+		}, string(v1alpha1.HealthStatusHealthy), string(v1alpha1.SyncStatusCodeSynced))
 		assert.True(t, res)
 	})
 	t.Run("Degraded, Suspended and health status failed", func(t *testing.T) {
@@ -1790,49 +1790,49 @@ func TestCheckResourceStatus(t *testing.T) {
 			suspended: true,
 			health:    true,
 			degraded:  true,
-		}, string(health.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
+		}, string(v1alpha1.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
 		assert.False(t, res)
 	})
 	t.Run("Suspended and health status passed", func(t *testing.T) {
 		res := checkResourceStatus(watchOpts{
 			suspended: true,
 			health:    true,
-		}, string(health.HealthStatusHealthy), string(v1alpha1.SyncStatusCodeSynced))
+		}, string(v1alpha1.HealthStatusHealthy), string(v1alpha1.SyncStatusCodeSynced))
 		assert.True(t, res)
 	})
 	t.Run("Suspended and health status failed", func(t *testing.T) {
 		res := checkResourceStatus(watchOpts{
 			suspended: true,
 			health:    true,
-		}, string(health.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
+		}, string(v1alpha1.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
 		assert.False(t, res)
 	})
 	t.Run("Suspended passed", func(t *testing.T) {
 		res := checkResourceStatus(watchOpts{
 			suspended: true,
 			health:    false,
-		}, string(health.HealthStatusSuspended), string(v1alpha1.SyncStatusCodeSynced))
+		}, string(v1alpha1.HealthStatusSuspended), string(v1alpha1.SyncStatusCodeSynced))
 		assert.True(t, res)
 	})
 	t.Run("Suspended failed", func(t *testing.T) {
 		res := checkResourceStatus(watchOpts{
 			suspended: true,
 			health:    false,
-		}, string(health.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
+		}, string(v1alpha1.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
 		assert.False(t, res)
 	})
 	t.Run("Health passed", func(t *testing.T) {
 		res := checkResourceStatus(watchOpts{
 			suspended: false,
 			health:    true,
-		}, string(health.HealthStatusHealthy), string(v1alpha1.SyncStatusCodeSynced))
+		}, string(v1alpha1.HealthStatusHealthy), string(v1alpha1.SyncStatusCodeSynced))
 		assert.True(t, res)
 	})
 	t.Run("Health failed", func(t *testing.T) {
 		res := checkResourceStatus(watchOpts{
 			suspended: false,
 			health:    true,
-		}, string(health.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
+		}, string(v1alpha1.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
 		assert.False(t, res)
 	})
 	t.Run("Health check passes when resource has no health status", func(t *testing.T) {
@@ -1843,11 +1843,11 @@ func TestCheckResourceStatus(t *testing.T) {
 		assert.True(t, res)
 	})
 	t.Run("Synced passed", func(t *testing.T) {
-		res := checkResourceStatus(watchOpts{}, string(health.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
+		res := checkResourceStatus(watchOpts{}, string(v1alpha1.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
 		assert.True(t, res)
 	})
 	t.Run("Synced failed", func(t *testing.T) {
-		res := checkResourceStatus(watchOpts{}, string(health.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeOutOfSync))
+		res := checkResourceStatus(watchOpts{}, string(v1alpha1.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeOutOfSync))
 		assert.True(t, res)
 	})
 	t.Run("Degraded passed", func(t *testing.T) {
@@ -1855,7 +1855,7 @@ func TestCheckResourceStatus(t *testing.T) {
 			suspended: false,
 			health:    false,
 			degraded:  true,
-		}, string(health.HealthStatusDegraded), string(v1alpha1.SyncStatusCodeSynced))
+		}, string(v1alpha1.HealthStatusDegraded), string(v1alpha1.SyncStatusCodeSynced))
 		assert.True(t, res)
 	})
 	t.Run("Degraded failed", func(t *testing.T) {
@@ -1863,7 +1863,7 @@ func TestCheckResourceStatus(t *testing.T) {
 			suspended: false,
 			health:    false,
 			degraded:  true,
-		}, string(health.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
+		}, string(v1alpha1.HealthStatusProgressing), string(v1alpha1.SyncStatusCodeSynced))
 		assert.False(t, res)
 	})
 }
@@ -2119,7 +2119,7 @@ func TestCheckAppWaitConditions(t *testing.T) {
 	afterFinished := metav1.NewTime(finishedAt.Add(time.Minute))
 	beforeFinished := metav1.NewTime(finishedAt.Add(-time.Minute))
 
-	appWith := func(sync v1alpha1.SyncStatusCode, h health.HealthStatusCode) *v1alpha1.Application {
+	appWith := func(sync v1alpha1.SyncStatusCode, h v1alpha1.HealthStatusCode) *v1alpha1.Application {
 		return &v1alpha1.Application{
 			Status: v1alpha1.ApplicationStatus{
 				Sync:   v1alpha1.SyncStatus{Status: sync},
@@ -2138,13 +2138,13 @@ func TestCheckAppWaitConditions(t *testing.T) {
 	}{
 		{
 			name:      "synced and healthy with no operation returns ready",
-			app:       appWith(v1alpha1.SyncStatusCodeSynced, health.HealthStatusHealthy),
+			app:       appWith(v1alpha1.SyncStatusCodeSynced, v1alpha1.HealthStatusHealthy),
 			watch:     syncHealth,
 			wantReady: true,
 		},
 		{
 			name:             "pending operation marks operation in progress",
-			app:              &v1alpha1.Application{Operation: &v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}}, Status: v1alpha1.ApplicationStatus{Sync: v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced}, Health: v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy}}},
+			app:              &v1alpha1.Application{Operation: &v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}}, Status: v1alpha1.ApplicationStatus{Sync: v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced}, Health: v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy}}},
 			watch:            syncHealth,
 			wantReady:        false, // !watch.operation || operationStatus == nil -> false when operation pending and watch.operation
 			wantOpInProgress: true,
@@ -2153,7 +2153,7 @@ func TestCheckAppWaitConditions(t *testing.T) {
 			name: "operation state without FinishedAt marks operation in progress",
 			app: &v1alpha1.Application{Status: v1alpha1.ApplicationStatus{
 				Sync:           v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-				Health:         v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+				Health:         v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 				OperationState: &v1alpha1.OperationState{Operation: v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}}},
 			}},
 			watch:            syncHealth,
@@ -2164,7 +2164,7 @@ func TestCheckAppWaitConditions(t *testing.T) {
 			name: "finished operation not yet reconciled marks operation in progress",
 			app: &v1alpha1.Application{Status: v1alpha1.ApplicationStatus{
 				Sync:           v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-				Health:         v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+				Health:         v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 				OperationState: &v1alpha1.OperationState{Operation: v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}}, FinishedAt: &finishedAt},
 				ReconciledAt:   &beforeFinished,
 			}},
@@ -2176,7 +2176,7 @@ func TestCheckAppWaitConditions(t *testing.T) {
 			name: "finished operation reconciled afterwards is not in progress",
 			app: &v1alpha1.Application{Status: v1alpha1.ApplicationStatus{
 				Sync:           v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-				Health:         v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+				Health:         v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 				OperationState: &v1alpha1.OperationState{Operation: v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}}, FinishedAt: &finishedAt},
 				ReconciledAt:   &afterFinished,
 			}},
@@ -2185,7 +2185,7 @@ func TestCheckAppWaitConditions(t *testing.T) {
 		},
 		{
 			name:      "out of sync app is not ready",
-			app:       appWith(v1alpha1.SyncStatusCodeOutOfSync, health.HealthStatusHealthy),
+			app:       appWith(v1alpha1.SyncStatusCodeOutOfSync, v1alpha1.HealthStatusHealthy),
 			watch:     syncHealth,
 			wantReady: false,
 		},
@@ -2199,7 +2199,7 @@ func TestCheckAppWaitConditions(t *testing.T) {
 			name: "selected resources all ready returns ready",
 			app: &v1alpha1.Application{Status: v1alpha1.ApplicationStatus{
 				Resources: []v1alpha1.ResourceStatus{
-					{Kind: "Deployment", Name: "a", Namespace: "default", Status: v1alpha1.SyncStatusCodeSynced, Health: &v1alpha1.HealthStatus{Status: health.HealthStatusHealthy}},
+					{Kind: "Deployment", Name: "a", Namespace: "default", Status: v1alpha1.SyncStatusCodeSynced, Health: &v1alpha1.HealthStatus{Status: v1alpha1.HealthStatusHealthy}},
 				},
 			}},
 			watch:             syncHealth,
@@ -2210,8 +2210,8 @@ func TestCheckAppWaitConditions(t *testing.T) {
 			name: "selected resources with one not ready returns not ready",
 			app: &v1alpha1.Application{Status: v1alpha1.ApplicationStatus{
 				Resources: []v1alpha1.ResourceStatus{
-					{Kind: "Deployment", Name: "a", Namespace: "default", Status: v1alpha1.SyncStatusCodeSynced, Health: &v1alpha1.HealthStatus{Status: health.HealthStatusHealthy}},
-					{Kind: "Deployment", Name: "b", Namespace: "default", Status: v1alpha1.SyncStatusCodeOutOfSync, Health: &v1alpha1.HealthStatus{Status: health.HealthStatusProgressing}},
+					{Kind: "Deployment", Name: "a", Namespace: "default", Status: v1alpha1.SyncStatusCodeSynced, Health: &v1alpha1.HealthStatus{Status: v1alpha1.HealthStatusHealthy}},
+					{Kind: "Deployment", Name: "b", Namespace: "default", Status: v1alpha1.SyncStatusCodeOutOfSync, Health: &v1alpha1.HealthStatus{Status: v1alpha1.HealthStatusProgressing}},
 				},
 			}},
 			watch: syncHealth,
@@ -2227,7 +2227,7 @@ func TestCheckAppWaitConditions(t *testing.T) {
 			name: "hydration in progress without prior successful hydration does not panic",
 			app: &v1alpha1.Application{Status: v1alpha1.ApplicationStatus{
 				Sync:   v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-				Health: v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+				Health: v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 				SourceHydrator: v1alpha1.SourceHydratorStatus{
 					CurrentOperation: &v1alpha1.HydrateOperation{Phase: v1alpha1.HydrateOperationPhaseHydrating},
 				},
@@ -2240,9 +2240,9 @@ func TestCheckAppWaitConditions(t *testing.T) {
 			name: "hydration in progress blocks ready even when selected resources are ready",
 			app: &v1alpha1.Application{Status: v1alpha1.ApplicationStatus{
 				Sync:   v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-				Health: v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+				Health: v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 				Resources: []v1alpha1.ResourceStatus{
-					{Kind: "Deployment", Name: "a", Namespace: "default", Status: v1alpha1.SyncStatusCodeSynced, Health: &v1alpha1.HealthStatus{Status: health.HealthStatusHealthy}},
+					{Kind: "Deployment", Name: "a", Namespace: "default", Status: v1alpha1.SyncStatusCodeSynced, Health: &v1alpha1.HealthStatus{Status: v1alpha1.HealthStatusHealthy}},
 				},
 				SourceHydrator: v1alpha1.SourceHydratorStatus{
 					CurrentOperation: &v1alpha1.HydrateOperation{Phase: v1alpha1.HydrateOperationPhaseHydrating},
@@ -2256,7 +2256,7 @@ func TestCheckAppWaitConditions(t *testing.T) {
 			name: "successful hydration returns ready",
 			app: &v1alpha1.Application{Status: v1alpha1.ApplicationStatus{
 				Sync:   v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-				Health: v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+				Health: v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 				SourceHydrator: v1alpha1.SourceHydratorStatus{
 					CurrentOperation: &v1alpha1.HydrateOperation{
 						Phase:       v1alpha1.HydrateOperationPhaseHydrated,
@@ -2397,7 +2397,7 @@ func (c *readyEventAcdClient) WatchApplicationWithRetry(_ context.Context, _ str
 			Operation:  &v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}},
 			Status: v1alpha1.ApplicationStatus{
 				Sync:   v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-				Health: v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+				Health: v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 			},
 		},
 	}
@@ -2505,7 +2505,7 @@ func (c *readyFakeAppServiceClient) Get(_ context.Context, _ *applicationpkg.App
 		},
 		Status: v1alpha1.ApplicationStatus{
 			Sync:   v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-			Health: v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+			Health: v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 		},
 	}, nil
 }
@@ -2607,7 +2607,7 @@ func (c *fakeAppServiceClient) Get(_ context.Context, _ *applicationpkg.Applicat
 					Name:      "service-name1",
 					Status:    "Synced",
 					Health: &v1alpha1.HealthStatus{
-						Status:  health.HealthStatusHealthy,
+						Status:  v1alpha1.HealthStatusHealthy,
 						Message: "health-message",
 					},
 				},
@@ -2618,7 +2618,7 @@ func (c *fakeAppServiceClient) Get(_ context.Context, _ *applicationpkg.Applicat
 					Name:      "test",
 					Status:    "Synced",
 					Health: &v1alpha1.HealthStatus{
-						Status:  health.HealthStatusHealthy,
+						Status:  v1alpha1.HealthStatusHealthy,
 						Message: "health-message",
 					},
 				},
@@ -2634,7 +2634,7 @@ func (c *fakeAppServiceClient) Get(_ context.Context, _ *applicationpkg.Applicat
 				Status: v1alpha1.SyncStatusCodeOutOfSync,
 			},
 			Health: v1alpha1.AppHealthStatus{
-				Status: health.HealthStatusProgressing,
+				Status: v1alpha1.HealthStatusProgressing,
 			},
 		},
 	}, nil

@@ -7,9 +7,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/util/glob"
+
 	"github.com/argoproj/argo-cd/v3/util/argo"
-	"github.com/argoproj/argo-cd/v3/util/glob"
 
 	"k8s.io/apimachinery/pkg/labels"
 )

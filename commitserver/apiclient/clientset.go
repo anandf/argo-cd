@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/common"
-	"github.com/argoproj/argo-cd/v3/util/env"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"

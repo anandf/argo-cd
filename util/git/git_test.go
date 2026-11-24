@@ -26,148 +26,6 @@ func setupGitEnv(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(cwd, "testdata", "gitconfig"))
 }
 
-func TestIsCommitSHA(t *testing.T) {
-	t.Parallel()
-	assert.True(t, IsCommitSHA("9d921f65f3c5373b682e2eb4b37afba6592e8f8b"))
-	assert.True(t, IsCommitSHA("9D921F65F3C5373B682E2EB4B37AFBA6592E8F8B"))
-	assert.False(t, IsCommitSHA("gd921f65f3c5373b682e2eb4b37afba6592e8f8b"))
-	assert.False(t, IsCommitSHA("master"))
-	assert.False(t, IsCommitSHA("HEAD"))
-	assert.False(t, IsCommitSHA("9d921f6")) // only consider 40 characters hex strings as a commit-sha
-	assert.True(t, IsTruncatedCommitSHA("9d921f6"))
-	assert.False(t, IsTruncatedCommitSHA("9d921f")) // we only consider 7+ characters
-	assert.False(t, IsTruncatedCommitSHA("branch-name"))
-}
-
-func TestEnsurePrefix(t *testing.T) {
-	t.Parallel()
-	data := [][]string{
-		{"world", "hello", "helloworld"},
-		{"helloworld", "hello", "helloworld"},
-		{"example.com", "https://", "https://example.com"},
-		{"https://example.com", "https://", "https://example.com"},
-		{"cd", "argo", "argocd"},
-		{"argocd", "argo", "argocd"},
-		{"", "argocd", "argocd"},
-		{"argocd", "", "argocd"},
-	}
-	for _, table := range data {
-		result := ensurePrefix(table[0], table[1])
-		assert.Equal(t, table[2], result)
-	}
-}
-
-func TestIsSSHURL(t *testing.T) {
-	t.Parallel()
-	data := map[string]bool{
-		"git://github.com/argoproj/test.git":     false,
-		"git@GITHUB.com:argoproj/test.git":       true,
-		"git@github.com:test":                    true,
-		"git@github.com:test.git":                true,
-		"https://github.com/argoproj/test":       false,
-		"https://github.com/argoproj/test.git":   false,
-		"ssh://git@GITHUB.com:argoproj/test":     true,
-		"ssh://git@GITHUB.com:argoproj/test.git": true,
-		"ssh://git@github.com:test.git":          true,
-	}
-	for k, v := range data {
-		isSSH, _ := IsSSHURL(k)
-		assert.Equal(t, v, isSSH)
-	}
-}
-
-func TestIsSSHURLUserName(t *testing.T) {
-	t.Parallel()
-	isSSH, user := IsSSHURL("ssh://john@john-server.org:29418/project")
-	assert.True(t, isSSH)
-	assert.Equal(t, "john", user)
-
-	isSSH, user = IsSSHURL("john@john-server.org:29418/project")
-	assert.True(t, isSSH)
-	assert.Equal(t, "john", user)
-
-	isSSH, user = IsSSHURL("john@doe.org@john-server.org:29418/project")
-	assert.True(t, isSSH)
-	assert.Equal(t, "john@doe.org", user)
-
-	isSSH, user = IsSSHURL("ssh://john@doe.org@john-server.org:29418/project")
-	assert.True(t, isSSH)
-	assert.Equal(t, "john@doe.org", user)
-
-	isSSH, user = IsSSHURL("john@doe.org@john-server.org:project")
-	assert.True(t, isSSH)
-	assert.Equal(t, "john@doe.org", user)
-
-	isSSH, user = IsSSHURL("john@doe.org@john-server.org:29418/project")
-	assert.True(t, isSSH)
-	assert.Equal(t, "john@doe.org", user)
-}
-
-func TestSSHHostWithPort(t *testing.T) {
-	t.Parallel()
-	data := map[string]string{
-		"git@github.com:argoproj/test.git":            "github.com:22",
-		"ssh://git@github.com/argoproj/test.git":      "github.com:22",
-		"ssh://git@github.com:2222/argoproj/test.git": "github.com:2222",
-		"ssh://john@john-server.org:29418/project":    "john-server.org:29418",
-		"https://github.com/argoproj/test":            "",
-		"":                                            "",
-	}
-	for repoURL, want := range data {
-		assert.Equal(t, want, SSHHostWithPort(repoURL), "input: %q", repoURL)
-	}
-}
-
-func TestSameURL(t *testing.T) {
-	t.Parallel()
-	data := map[string]string{
-		"git@GITHUB.com:argoproj/test":                     "git@github.com:argoproj/test.git",
-		"git@GITHUB.com:argoproj/test.git":                 "git@github.com:argoproj/test.git",
-		"git@GITHUB.com:test":                              "git@github.com:test.git",
-		"git@GITHUB.com:test.git":                          "git@github.com:test.git",
-		"https://GITHUB.com/argoproj/test":                 "https://github.com/argoproj/test.git",
-		"https://GITHUB.com/argoproj/test.git":             "https://github.com/argoproj/test.git",
-		"https://github.com/FOO":                           "https://github.com/foo",
-		"https://github.com/TEST":                          "https://github.com/TEST.git",
-		"https://github.com/TEST.git":                      "https://github.com/TEST.git",
-		"https://github.com:4443/TEST":                     "https://github.com:4443/TEST.git",
-		"https://github.com:4443/TEST.git":                 "https://github.com:4443/TEST",
-		"ssh://git@GITHUB.com/argoproj/test":               "git@github.com:argoproj/test.git",
-		"ssh://git@GITHUB.com/argoproj/test.git":           "git@github.com:argoproj/test.git",
-		"ssh://git@GITHUB.com/test.git":                    "git@github.com:test.git",
-		"ssh://git@github.com/test":                        "git@github.com:test.git",
-		" https://github.com/argoproj/test ":               "https://github.com/argoproj/test.git", //nolint:gocritic // This includes whitespaces for testing
-		"\thttps://github.com/argoproj/test\n":             "https://github.com/argoproj/test.git",
-		"https://1234.visualstudio.com/myproj/_git/myrepo": "https://1234.visualstudio.com/myproj/_git/myrepo",
-		"https://dev.azure.com/1234/myproj/_git/myrepo":    "https://dev.azure.com/1234/myproj/_git/myrepo",
-	}
-	for k, v := range data {
-		assert.True(t, SameURL(k, v))
-	}
-}
-
-func TestSanitizeRepoURL(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"no credentials", "https://github.com/argoproj/argo-cd.git", "https://github.com/argoproj/argo-cd.git"},
-		{"strips user and password", "https://user:p@ss@github.com/argoproj/argo-cd.git", "https://github.com/argoproj/argo-cd.git"},
-		{"strips token-only userinfo", "https://token@github.com/org/repo", "https://github.com/org/repo"},
-		{"scp-style ssh left unchanged", "git@github.com:argoproj/argo-cd.git", "git@github.com:argoproj/argo-cd.git"},
-		{"unparseable returned unchanged", "://not a url", "://not a url"},
-		{"empty returned unchanged", "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			assert.Equal(t, tt.want, SanitizeRepoURL(tt.in))
-		})
-	}
-}
-
 func TestCustomHTTPClient(t *testing.T) {
 	proxy.UseTestingProxyCallback()
 
@@ -263,119 +121,6 @@ func TestCustomHTTPClient(t *testing.T) {
 	}
 }
 
-func TestLsRemote(t *testing.T) {
-	setupGitEnv(t)
-	ctx := t.Context()
-
-	// A local repository with the branch and tags the cases below resolve, so the
-	// test does not depend on reaching github.com.
-	repoDir := t.TempDir()
-	require.NoError(t, runCmd(ctx, repoDir, "git", "init", "--initial-branch=master"))
-	commit := func(message string) string {
-		require.NoError(t, runCmd(ctx, repoDir, "git", "commit", "--allow-empty", "-m", message))
-		out, err := outputCmd(ctx, repoDir, "git", "rev-parse", "HEAD")
-		require.NoError(t, err)
-		return strings.TrimSpace(string(out))
-	}
-	tags := map[string]string{}
-	for _, tag := range []string{"release-0.8", "v0.8.0", "v0.8.1", "v0.8.2", "v2.9.0", "v2.10.3", "v2.10.4", "v2.11.0-rc1"} {
-		tags[tag] = commit(tag)
-		require.NoError(t, runCmd(ctx, repoDir, "git", "tag", tag))
-	}
-	head := commit("head")
-
-	clnt, err := NewClientExt("file://"+repoDir, t.TempDir(), NopCreds{}, false, false, "", "")
-	require.NoError(t, err)
-
-	testCases := []struct {
-		name           string
-		revision       string
-		expectedCommit string
-	}{
-		{
-			name:           "should resolve symbolic link reference",
-			revision:       "HEAD",
-			expectedCommit: head,
-		},
-		{
-			name:           "should resolve branch name",
-			revision:       "master",
-			expectedCommit: head,
-		},
-		{
-			name:           "should resolve tag without semantic versioning",
-			revision:       "release-0.8",
-			expectedCommit: tags["release-0.8"],
-		},
-		{
-			name:           "should resolve a pinned tag with semantic versioning",
-			revision:       "v0.8.0",
-			expectedCommit: tags["v0.8.0"],
-		},
-		{
-			name:           "should resolve a range tag with semantic versioning",
-			revision:       "v0.8.*", // it should resolve to v0.8.2
-			expectedCommit: tags["v0.8.2"],
-		},
-		{
-			name:           "should resolve a range tag with semantic versioning without the 'v' prefix",
-			revision:       "0.8.*", // it should resolve to v0.8.2
-			expectedCommit: tags["v0.8.2"],
-		},
-		{
-			name:           "should resolve a conditional range tag with semantic versioning",
-			revision:       ">=v2.9.0 <2.10.4", // it should resolve to v2.10.3
-			expectedCommit: tags["v2.10.3"],
-		},
-		{
-			name:           "should resolve a star range tag with semantic versioning",
-			revision:       "*", // it should resolve to v2.10.4, skipping the pre-release
-			expectedCommit: tags["v2.10.4"],
-		},
-		{
-			name:           "should resolve a star range suffixed tag with semantic versioning",
-			revision:       "*-0", // pre-releases included: it should resolve to v2.11.0-rc1
-			expectedCommit: tags["v2.11.0-rc1"],
-		},
-		{
-			name:           "should resolve commit sha",
-			revision:       tags["v0.8.1"],
-			expectedCommit: tags["v0.8.1"],
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			commitSHA, err := clnt.LsRemote(tc.revision)
-			require.NoError(t, err)
-			assert.True(t, IsCommitSHA(commitSHA))
-			assert.Equal(t, tc.expectedCommit, commitSHA)
-		})
-	}
-
-	// We do not resolve truncated git hashes and return the commit as-is if it appears to be a commit
-	t.Run("truncated commit", func(t *testing.T) {
-		commitSHA, err := clnt.LsRemote(head[:7])
-		require.NoError(t, err)
-		assert.False(t, IsCommitSHA(commitSHA))
-		assert.True(t, IsTruncatedCommitSHA(commitSHA))
-	})
-
-	t.Run("unresolvable revisions", func(t *testing.T) {
-		xfail := []string{
-			"unresolvable",
-			head[:6], // too short (6 characters)
-		}
-
-		for _, revision := range xfail {
-			_, err := clnt.LsRemote(revision)
-			require.ErrorContains(t, err, "unable to resolve")
-			require.ErrorIs(t, err, ErrRevisionNotFound)
-		}
-	})
-}
-
-// Running this test requires git-lfs to be installed on your machine.
 func TestLFSClient(t *testing.T) {
 	setupGitEnv(t)
 	// temporary disable LFS test
@@ -782,31 +527,6 @@ func TestLsFilesForGitFileGeneratorGlobbingPatterns(t *testing.T) {
 	}
 }
 
-func TestAnnotatedTagHandling(t *testing.T) {
-	setupGitEnv(t)
-	dir := t.TempDir()
-
-	client, err := NewClientExt("https://github.com/argoproj/argo-cd.git", dir, NopCreds{}, false, false, "", "")
-	require.NoError(t, err)
-
-	err = client.Init()
-	require.NoError(t, err)
-
-	// Test annotated tag resolution
-	commitSHA, err := client.LsRemote("v1.0.0") // Known annotated tag
-	require.NoError(t, err)
-
-	// Verify we get commit SHA, not tag SHA
-	assert.True(t, IsCommitSHA(commitSHA))
-
-	// Test tag reference handling
-	refs, err := client.LsRefs()
-	require.NoError(t, err)
-
-	// Verify tag exists in the list and points to a valid commit SHA
-	assert.Contains(t, refs.Tags, "v1.0.0", "Tag v1.0.0 should exist in refs")
-}
-
 func TestIsShortRef(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -926,4 +646,143 @@ func TestIsShortRef(t *testing.T) {
 			assert.Equal(t, tt.expected, result, "IsShortRef(%q) = %v, expected %v", tt.revision, result, tt.expected)
 		})
 	}
+}
+
+func TestLsRemote(t *testing.T) {
+	setupGitEnv(t)
+	ctx := t.Context()
+
+	// A local repository with the branch and tags the cases below resolve, so the
+	// test does not depend on reaching github.com.
+	repoDir := t.TempDir()
+	require.NoError(t, runCmd(ctx, repoDir, "git", "init", "--initial-branch=master"))
+	commit := func(message string) string {
+		require.NoError(t, runCmd(ctx, repoDir, "git", "commit", "--allow-empty", "-m", message))
+		out, err := outputCmd(ctx, repoDir, "git", "rev-parse", "HEAD")
+		require.NoError(t, err)
+		return strings.TrimSpace(string(out))
+	}
+	tags := map[string]string{}
+	for _, tag := range []string{"release-0.8", "v0.8.0", "v0.8.1", "v0.8.2", "v2.9.0", "v2.10.3", "v2.10.4", "v2.11.0-rc1"} {
+		tags[tag] = commit(tag)
+		require.NoError(t, runCmd(ctx, repoDir, "git", "tag", tag))
+	}
+	head := commit("head")
+
+	clnt, err := NewClientExt("file://"+repoDir, t.TempDir(), NopCreds{}, false, false, "", "")
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name           string
+		revision       string
+		expectedCommit string
+	}{
+		{
+			name:           "should resolve symbolic link reference",
+			revision:       "HEAD",
+			expectedCommit: head,
+		},
+		{
+			name:           "should resolve branch name",
+			revision:       "master",
+			expectedCommit: head,
+		},
+		{
+			name:           "should resolve tag without semantic versioning",
+			revision:       "release-0.8",
+			expectedCommit: tags["release-0.8"],
+		},
+		{
+			name:           "should resolve a pinned tag with semantic versioning",
+			revision:       "v0.8.0",
+			expectedCommit: tags["v0.8.0"],
+		},
+		{
+			name:           "should resolve a range tag with semantic versioning",
+			revision:       "v0.8.*", // it should resolve to v0.8.2
+			expectedCommit: tags["v0.8.2"],
+		},
+		{
+			name:           "should resolve a range tag with semantic versioning without the 'v' prefix",
+			revision:       "0.8.*", // it should resolve to v0.8.2
+			expectedCommit: tags["v0.8.2"],
+		},
+		{
+			name:           "should resolve a conditional range tag with semantic versioning",
+			revision:       ">=v2.9.0 <2.10.4", // it should resolve to v2.10.3
+			expectedCommit: tags["v2.10.3"],
+		},
+		{
+			name:           "should resolve a star range tag with semantic versioning",
+			revision:       "*", // it should resolve to v2.10.4, skipping the pre-release
+			expectedCommit: tags["v2.10.4"],
+		},
+		{
+			name:           "should resolve a star range suffixed tag with semantic versioning",
+			revision:       "*-0", // pre-releases included: it should resolve to v2.11.0-rc1
+			expectedCommit: tags["v2.11.0-rc1"],
+		},
+		{
+			name:           "should resolve commit sha",
+			revision:       tags["v0.8.1"],
+			expectedCommit: tags["v0.8.1"],
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			commitSHA, err := clnt.LsRemote(tc.revision)
+			require.NoError(t, err)
+			assert.True(t, IsCommitSHA(commitSHA))
+			assert.Equal(t, tc.expectedCommit, commitSHA)
+		})
+	}
+
+	// We do not resolve truncated git hashes and return the commit as-is if it appears to be a commit
+	t.Run("truncated commit", func(t *testing.T) {
+		commitSHA, err := clnt.LsRemote(head[:7])
+		require.NoError(t, err)
+		assert.False(t, IsCommitSHA(commitSHA))
+		assert.True(t, IsTruncatedCommitSHA(commitSHA))
+	})
+
+	t.Run("unresolvable revisions", func(t *testing.T) {
+		xfail := []string{
+			"unresolvable",
+			head[:6], // too short (6 characters)
+		}
+
+		for _, revision := range xfail {
+			_, err := clnt.LsRemote(revision)
+			require.ErrorContains(t, err, "unable to resolve")
+			require.ErrorIs(t, err, ErrRevisionNotFound)
+		}
+	})
+}
+
+// Running this test requires git-lfs to be installed on your machine.
+
+func TestAnnotatedTagHandling(t *testing.T) {
+	setupGitEnv(t)
+	dir := t.TempDir()
+
+	client, err := NewClientExt("https://github.com/argoproj/argo-cd.git", dir, NopCreds{}, false, false, "", "")
+	require.NoError(t, err)
+
+	err = client.Init()
+	require.NoError(t, err)
+
+	// Test annotated tag resolution
+	commitSHA, err := client.LsRemote("v1.0.0") // Known annotated tag
+	require.NoError(t, err)
+
+	// Verify we get commit SHA, not tag SHA
+	assert.True(t, IsCommitSHA(commitSHA))
+
+	// Test tag reference handling
+	refs, err := client.LsRefs()
+	require.NoError(t, err)
+
+	// Verify tag exists in the list and points to a valid commit SHA
+	assert.Contains(t, refs.Tags, "v1.0.0", "Tag v1.0.0 should exist in refs")
 }

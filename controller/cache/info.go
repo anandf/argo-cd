@@ -18,8 +18,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	resourcehelper "k8s.io/component-helpers/resource"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/common"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/argo/normalizers"
 	"github.com/argoproj/argo-cd/v3/util/resource"
 	"github.com/argoproj/argo-cd/v3/util/settings"

@@ -10,11 +10,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	appsv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/cmd/argocd/commands/headless"
 	"github.com/argoproj/argo-cd/v3/cmd/argocd/commands/utils"
 	argocdclient "github.com/argoproj/argo-cd/v3/pkg/apiclient"
 	gpgkeypkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/gpgkey"
-	appsv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/cli"
 	"github.com/argoproj/argo-cd/v3/util/errors"
 	utilio "github.com/argoproj/argo-cd/v3/util/io"

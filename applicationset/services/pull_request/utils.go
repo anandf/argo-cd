@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"slices"
 
-	argoprojiov1alpha1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	argoprojiov1alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 )
 
 func compileFilters(filters []argoprojiov1alpha1.PullRequestGeneratorFilter) ([]*Filter, error) {

@@ -13,7 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/argoproj/argo-cd/v3/util/env"
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	utilio "github.com/argoproj/argo-cd/v3/util/io"
 
 	rediscache "github.com/go-redis/cache/v9"

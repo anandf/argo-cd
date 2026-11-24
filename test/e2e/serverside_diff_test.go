@@ -12,8 +12,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	applicationpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 	utilio "github.com/argoproj/argo-cd/v3/util/io"

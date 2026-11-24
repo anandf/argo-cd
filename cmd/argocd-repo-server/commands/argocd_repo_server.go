@@ -23,6 +23,8 @@ import (
 	cacheutil "github.com/argoproj/argo-cd/v3/util/cache"
 	utilio "github.com/argoproj/argo-cd/v3/util/io"
 
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/reposerver"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
@@ -30,7 +32,6 @@ import (
 	"github.com/argoproj/argo-cd/v3/reposerver/repository"
 	"github.com/argoproj/argo-cd/v3/util/askpass"
 	"github.com/argoproj/argo-cd/v3/util/cli"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	"github.com/argoproj/argo-cd/v3/util/errors"
 	utilgrpc "github.com/argoproj/argo-cd/v3/util/grpc"
 	"github.com/argoproj/argo-cd/v3/util/healthz"

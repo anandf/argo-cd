@@ -15,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/diff"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync"
 	hookutil "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/hook"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/ignore"
@@ -35,11 +34,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	statecache "github.com/argoproj/argo-cd/v3/controller/cache"
 	"github.com/argoproj/argo-cd/v3/controller/metrics"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	applog "github.com/argoproj/argo-cd/v3/util/app/log"
 	"github.com/argoproj/argo-cd/v3/util/app/path"
@@ -103,7 +103,7 @@ type AppStateManager interface {
 // comparisonResult holds the state of an application after the reconciliation
 type comparisonResult struct {
 	syncStatus           *v1alpha1.SyncStatus
-	healthStatus         health.HealthStatusCode
+	healthStatus         v1alpha1.HealthStatusCode
 	healthMessage        string
 	resources            []v1alpha1.ResourceStatus
 	managedResources     []managedResource
@@ -125,7 +125,7 @@ func (res *comparisonResult) GetSyncStatus() *v1alpha1.SyncStatus {
 	return res.syncStatus
 }
 
-func (res *comparisonResult) GetHealthStatus() health.HealthStatusCode {
+func (res *comparisonResult) GetHealthStatus() v1alpha1.HealthStatusCode {
 	return res.healthStatus
 }
 
@@ -712,7 +712,7 @@ func (m *appStateManager) CompareAppState(ctx context.Context, app *v1alpha1.App
 	ts.AddCheckpoint("settings_ms")
 	if err != nil {
 		log.Infof("Basic comparison settings cannot be loaded, using unknown comparison: %s", err.Error())
-		return &comparisonResult{syncStatus: syncStatus, healthStatus: health.HealthStatusUnknown}, nil
+		return &comparisonResult{syncStatus: syncStatus, healthStatus: v1alpha1.HealthStatusUnknown}, nil
 	}
 
 	// do best effort loading live and target state to present as much information about app state as possible

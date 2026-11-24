@@ -1,9 +1,11 @@
 package commit
 
 import (
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/commitserver/metrics"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/git"
+	"github.com/argoproj/argo-cd/v3/util/repocreds"
 )
 
 // RepoClientFactory is a factory for creating git clients for a repository.
@@ -26,7 +28,7 @@ func NewRepoClientFactory(gitCredsStore git.CredsStore, metricsServer *metrics.S
 
 // NewClient creates a new git client for the repository.
 func (r *repoClientFactory) NewClient(repo *v1alpha1.Repository, rootPath string) (git.Client, error) {
-	gitCreds := repo.GetGitCreds(r.gitCredsStore)
+	gitCreds := repocreds.GetGitCreds(repo, r.gitCredsStore)
 	opts := git.WithEventHandlers(metrics.NewGitClientEventHandlers(r.metricsServer))
 	return git.NewClientExt(repo.Repo, rootPath, gitCreds, repo.IsInsecure(), repo.IsLFSEnabled(), repo.Proxy, repo.NoProxy, opts)
 }

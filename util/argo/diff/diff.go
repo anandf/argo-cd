@@ -10,7 +10,8 @@ import (
 
 	k8smanagedfields "k8s.io/apimachinery/pkg/util/managedfields"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/argo/managedfields"
 	"github.com/argoproj/argo-cd/v3/util/argo/normalizers"

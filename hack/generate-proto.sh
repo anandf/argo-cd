@@ -31,7 +31,7 @@ export GO111MODULE=off
 # --apimachinery-packages= option so that go-to-protobuf can locate the types, but prefixed with a
 # '-' so that go-to-protobuf will not generate .proto files for it.
 PACKAGES=(
-    github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1
+    github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1
 )
 APIMACHINERY_PKGS=(
     +k8s.io/apimachinery/pkg/util/intstr
@@ -45,6 +45,8 @@ APIMACHINERY_PKGS=(
 
 export GO111MODULE=on
 [ -e ./v3 ] || ln -s . v3
+# The API types live in the nested api module, whose import path ends in /api/v3.
+[ -e ./api/v3 ] || ln -s . ./api/v3
 [ -e "${GOPATH_PROJECT_ROOT}" ] || (mkdir -p "$(dirname "${GOPATH_PROJECT_ROOT}")" && ln -s "${PROJECT_ROOT}" "${GOPATH_PROJECT_ROOT}")
 
 # protoc_include is the include directory containing the .proto files distributed with protoc binary
@@ -123,6 +125,7 @@ done
 rm util/askpass/askpass.swagger.json
 
 [ -L "${GOPATH_PROJECT_ROOT}" ] && rm -rf "${GOPATH_PROJECT_ROOT}"
+[ -L ./api/v3 ] && rm -rf ./api/v3
 [ -L ./v3 ] && rm -rf v3
 
 # collect_swagger gathers swagger files into a subdirectory

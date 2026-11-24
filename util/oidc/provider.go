@@ -15,7 +15,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
-	"github.com/argoproj/argo-cd/v3/util/security"
+	"github.com/argoproj/argo-cd/api/v3/util/security"
+
 	"github.com/argoproj/argo-cd/v3/util/settings"
 )
 

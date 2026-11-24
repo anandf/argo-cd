@@ -10,8 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/argoproj/argo-cd/api/v3/util/rbac/actions"
+
+	"github.com/argoproj/argo-cd/api/v3/util/glob"
+
 	"github.com/argoproj/argo-cd/v3/util/assets"
-	"github.com/argoproj/argo-cd/v3/util/glob"
 	jwtutil "github.com/argoproj/argo-cd/v3/util/jwt"
 
 	"github.com/casbin/casbin/v2"
@@ -55,32 +58,32 @@ type CasbinEnforcer interface {
 	GetImplicitPermissionsForUser(user string, domain ...string) ([][]string, error)
 }
 
+// Re-exported from util/rbac/actions so that existing callers keep working.
 const (
-	// please add new items to Resources
-	ResourceClusters          = "clusters"
-	ResourceProjects          = "projects"
-	ResourceApplications      = "applications"
-	ResourceApplicationSets   = "applicationsets"
-	ResourceRepositories      = "repositories"
-	ResourceWriteRepositories = "write-repositories"
-	ResourceCertificates      = "certificates"
-	ResourceAccounts          = "accounts"
-	ResourceGPGKeys           = "gpgkeys"
-	ResourceLogs              = "logs"
-	ResourceExec              = "exec"
-	ResourceExtensions        = "extensions"
-
-	// please add new items to Actions
-	ActionGet      = "get"
-	ActionCreate   = "create"
-	ActionUpdate   = "update"
-	ActionDelete   = "delete"
-	ActionSync     = "sync"
-	ActionOverride = "override"
-	ActionAction   = "action"
-	ActionInvoke   = "invoke"
-	ActionRollback = "rollback"
+	ResourceClusters          = actions.ResourceClusters
+	ResourceProjects          = actions.ResourceProjects
+	ResourceApplications      = actions.ResourceApplications
+	ResourceApplicationSets   = actions.ResourceApplicationSets
+	ResourceRepositories      = actions.ResourceRepositories
+	ResourceWriteRepositories = actions.ResourceWriteRepositories
+	ResourceCertificates      = actions.ResourceCertificates
+	ResourceAccounts          = actions.ResourceAccounts
+	ResourceGPGKeys           = actions.ResourceGPGKeys
+	ResourceLogs              = actions.ResourceLogs
+	ResourceExec              = actions.ResourceExec
+	ResourceExtensions        = actions.ResourceExtensions
+	ActionGet                 = actions.ActionGet
+	ActionCreate              = actions.ActionCreate
+	ActionUpdate              = actions.ActionUpdate
+	ActionDelete              = actions.ActionDelete
+	ActionSync                = actions.ActionSync
+	ActionOverride            = actions.ActionOverride
+	ActionAction              = actions.ActionAction
+	ActionInvoke              = actions.ActionInvoke
+	ActionRollback            = actions.ActionRollback
 )
+
+var ProjectScoped = actions.ProjectScoped
 
 var (
 	DefaultScopes = []string{"groups"}
@@ -110,15 +113,6 @@ var (
 		ActionInvoke,
 	}
 )
-
-var ProjectScoped = map[string]bool{
-	ResourceApplications:    true,
-	ResourceApplicationSets: true,
-	ResourceLogs:            true,
-	ResourceExec:            true,
-	ResourceClusters:        true,
-	ResourceRepositories:    true,
-}
 
 // Enforcer is a wrapper around an Casbin enforcer that:
 // * is backed by a kubernetes config map

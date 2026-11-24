@@ -43,9 +43,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	certutil "github.com/argoproj/argo-cd/v3/util/cert"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	executil "github.com/argoproj/argo-cd/v3/util/exec"
 	"github.com/argoproj/argo-cd/v3/util/proxy"
 	"github.com/argoproj/argo-cd/v3/util/versions"

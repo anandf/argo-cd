@@ -19,7 +19,6 @@ import (
 
 	kubecache "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/cache"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/diff"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube/kubemeta"
@@ -44,13 +43,17 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	argocommon "github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
 	eventspb "github.com/argoproj/argo-cd/v3/pkg/apiclient/events"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned"
-	applisters "github.com/argoproj/argo-cd/v3/pkg/client/listers/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned"
+	applisters "github.com/argoproj/argo-cd/api/v3/pkg/client/listers/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+	"github.com/argoproj/argo-cd/api/v3/util/security"
+
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/server/broadcast"
 	servercache "github.com/argoproj/argo-cd/v3/server/cache"
@@ -60,19 +63,18 @@ import (
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/collections"
 	"github.com/argoproj/argo-cd/v3/util/db"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	"github.com/argoproj/argo-cd/v3/util/git"
 	utilio "github.com/argoproj/argo-cd/v3/util/io"
 	"github.com/argoproj/argo-cd/v3/util/lua"
 	"github.com/argoproj/argo-cd/v3/util/manifeststream"
 	"github.com/argoproj/argo-cd/v3/util/rbac"
-	"github.com/argoproj/argo-cd/v3/util/security"
 	"github.com/argoproj/argo-cd/v3/util/session"
 	"github.com/argoproj/argo-cd/v3/util/settings"
 
 	resourceutil "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/resource"
 
-	applicationType "github.com/argoproj/argo-cd/v3/pkg/apis/application"
+	applicationType "github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
+
 	argodiff "github.com/argoproj/argo-cd/v3/util/argo/diff"
 	"github.com/argoproj/argo-cd/v3/util/argo/normalizers"
 )
@@ -2614,7 +2616,7 @@ func (s *Server) TerminateOperation(ctx context.Context, termOpReq *application.
 			// Returned unwrapped so that the gRPC status message is preserved as-is.
 			return status.Errorf(codes.InvalidArgument, "Unable to terminate operation. No operation is in progress")
 		}
-		a.Status.OperationState.Phase = common.OperationTerminating
+		a.Status.OperationState.Phase = v1alpha1.OperationTerminating
 		res, err := s.appclientset.ArgoprojV1alpha1().Applications(appNs).Update(ctx, a, metav1.UpdateOptions{})
 		if err != nil {
 			return fmt.Errorf("error updating application: %w", err)
@@ -3008,7 +3010,7 @@ func (s *Server) inferResourcesStatusHealth(app *v1alpha1.Application) {
 					healthByKey[kube.NewResourceKey(node.Group, node.Kind, node.Namespace, node.Name)] = node.Health
 				} else if node.ResourceVersion == "" && node.UID == "" && node.CreatedAt == nil {
 					healthByKey[kube.NewResourceKey(node.Group, node.Kind, node.Namespace, node.Name)] = &v1alpha1.HealthStatus{
-						Status:  health.HealthStatusMissing,
+						Status:  v1alpha1.HealthStatusMissing,
 						Message: "Resource has not been created",
 					}
 				}

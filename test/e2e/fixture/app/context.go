@@ -10,13 +10,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/test"
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture/certs"
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture/gpgkeys"
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture/repos"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	"github.com/argoproj/argo-cd/v3/util/settings"
 )
 

@@ -5,14 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubetesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
 )
 
 // newSyncedFakeApp returns an app that needs no refresh, with resourceCount entries
@@ -33,7 +32,7 @@ func newSyncedFakeApp(resourceCount int) *v1alpha1.Application {
 			Namespace: "default",
 			Name:      fmt.Sprintf("cm-%d", i),
 			Status:    v1alpha1.SyncStatusCodeSynced,
-			Health:    &v1alpha1.HealthStatus{Status: health.HealthStatusHealthy},
+			Health:    &v1alpha1.HealthStatus{Status: v1alpha1.HealthStatusHealthy},
 		}
 	}
 	app.Status.Resources = resources

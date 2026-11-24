@@ -16,8 +16,9 @@ import (
 	gpgkeymocks "github.com/argoproj/argo-cd/v3/pkg/apiclient/gpgkey/mocks"
 	projectmocks "github.com/argoproj/argo-cd/v3/pkg/apiclient/project/mocks"
 
+	appsv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	projectpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/project"
-	appsv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 )
 
 func dummySourceIntegrity() *appsv1.SourceIntegrity {

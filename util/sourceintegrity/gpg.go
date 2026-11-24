@@ -18,8 +18,9 @@ import (
 
 	"github.com/argoproj/argo-cd/v3/util/git"
 
+	appsv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/common"
-	appsv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	executil "github.com/argoproj/argo-cd/v3/util/exec"
 )
 

@@ -285,6 +285,11 @@ clientgen: codegen-go-tools-local
 	export GO111MODULE=off
 	./hack/update-codegen.sh
 
+# Regenerate the deprecation shims that keep the pre-api-module import paths working
+.PHONY: api-aliases
+api-aliases:
+	go run ./hack/gen-api-aliases
+
 .PHONY: clidocsgen
 clidocsgen:
 	go run tools/cmd-docs/main.go
@@ -298,10 +303,10 @@ resourceiconsgen:
 	hack/generate-icons-typescript.sh
 
 .PHONY: codegen-local
-codegen-local: mod-download-local gogen protogen clientgen openapigen clidocsgen mockgen actionsdocsgen resourceiconsgen manifests-local notification-docs notification-catalog
+codegen-local: mod-download-local gogen protogen clientgen openapigen clidocsgen mockgen api-aliases actionsdocsgen resourceiconsgen manifests-local notification-docs notification-catalog
 
 .PHONY: codegen-local-fast
-codegen-local-fast: gogen protogen-fast clientgen openapigen clidocsgen mockgen manifests-local notification-docs notification-catalog
+codegen-local-fast: gogen protogen-fast clientgen openapigen clidocsgen mockgen api-aliases manifests-local notification-docs notification-catalog
 
 .PHONY: codegen
 codegen: test-tools-image
@@ -488,9 +493,9 @@ test: test-tools-image
 
 # Run all unit tests (local version)
 .PHONY: test-local
-test-local: test-gitops-engine
-# run if TEST_MODULE is empty or does not point to gitops-engine tests
-ifneq ($(if $(TEST_MODULE),,ALL)$(filter-out github.com/argoproj/argo-cd/gitops-engine% ./gitops-engine%,$(TEST_MODULE)),)
+test-local: test-gitops-engine test-api
+# run if TEST_MODULE is empty or does not point to the nested modules' tests
+ifneq ($(if $(TEST_MODULE),,ALL)$(filter-out github.com/argoproj/argo-cd/gitops-engine% ./gitops-engine% github.com/argoproj/argo-cd/api% ./api%,$(TEST_MODULE)),)
 	if test "$(TEST_MODULE)" = ""; then \
 		DIST_DIR=${DIST_DIR} RERUN_FAILS=0 PACKAGES=`go list ./... | grep -v 'test/e2e'` ./hack/test.sh -args -test.gocoverdir="$(PWD)/test-results"; \
 	else \
@@ -505,6 +510,15 @@ test-gitops-engine:
 ifneq ($(if $(TEST_MODULE),,ALL)$(filter github.com/argoproj/argo-cd/gitops-engine% ./gitops-engine%,$(TEST_MODULE)),)
 	mkdir -p $(PWD)/test-results/gitops-engine
 	cd gitops-engine && go test -race -cover ./... -args -test.gocoverdir="$(PWD)/test-results/gitops-engine"
+endif
+
+# Run api module unit tests
+.PHONY: test-api
+test-api:
+# run if TEST_MODULE is empty or points to api module tests
+ifneq ($(if $(TEST_MODULE),,ALL)$(filter github.com/argoproj/argo-cd/api% ./api%,$(TEST_MODULE)),)
+	mkdir -p $(PWD)/test-results/api
+	cd api && go test -race -cover ./... -args -test.gocoverdir="$(PWD)/test-results/api"
 endif
 
 .PHONY: test-race

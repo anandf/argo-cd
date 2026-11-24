@@ -14,11 +14,9 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 
 	"github.com/argoproj/argo-cd/v3/common"
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 	"github.com/argoproj/argo-cd/v3/util/clusterauth"
@@ -54,8 +52,8 @@ func TestShardsReconcileAssignedApps(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
-		Expect(ResourceHealthIs("ConfigMap", "app-1-cm", health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy)).
+		Expect(ResourceHealthIs("ConfigMap", "app-1-cm", HealthStatusHealthy))
 
 	ctx2 := GivenWithSameState(ctx).
 		Path("shards-sync-assigned-apps/app-2").
@@ -68,7 +66,7 @@ func TestShardsReconcileAssignedApps(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationRunning)).
-		Expect(ResourceHealthIs("ConfigMap", "app-2-cm", health.HealthStatusMissing))
+		Expect(ResourceHealthIs("ConfigMap", "app-2-cm", HealthStatusMissing))
 
 	env[common.EnvControllerShard] = "1"
 	err = RestartProcess(ApplicationControllerProcName, env)
@@ -80,8 +78,8 @@ func TestShardsReconcileAssignedApps(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
-		Expect(ResourceHealthIs("ConfigMap", "app-2-cm", health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy)).
+		Expect(ResourceHealthIs("ConfigMap", "app-2-cm", HealthStatusHealthy))
 }
 
 // TestShardsReconcileClusterFirstSeenOnUpdate covers a cluster that reaches the
@@ -157,7 +155,7 @@ func TestShardsReconcileClusterFirstSeenOnUpdate(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(ResourceHealthIs("ConfigMap", "app-1-cm", health.HealthStatusHealthy))
+		Expect(ResourceHealthIs("ConfigMap", "app-1-cm", HealthStatusHealthy))
 }
 
 // waitForControllerReady waits until the restarted application controller

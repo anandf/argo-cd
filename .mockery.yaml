@@ -46,7 +46,7 @@ packages:
     interfaces:
       SessionServiceClient: {}
       SessionServiceServer: {}
-  github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/typed/application/v1alpha1:
+  github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/typed/application/v1alpha1:
     interfaces:
       AppProjectInterface: {}
   github.com/argoproj/argo-cd/v3/reposerver/apiclient:

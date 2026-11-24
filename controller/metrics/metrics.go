@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/robfig/cron/v3"
@@ -18,9 +17,10 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	argoappv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	applister "github.com/argoproj/argo-cd/api/v3/pkg/client/listers/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/common"
-	argoappv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	applister "github.com/argoproj/argo-cd/v3/pkg/client/listers/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/db"
 	"github.com/argoproj/argo-cd/v3/util/git"
 	"github.com/argoproj/argo-cd/v3/util/healthz"
@@ -508,7 +508,7 @@ func (c *appCollector) collectApps(ch chan<- prometheus.Metric, app *argoappv1.A
 	}
 	healthStatus := app.Status.Health.Status
 	if healthStatus == "" {
-		healthStatus = health.HealthStatusUnknown
+		healthStatus = argoappv1.HealthStatusUnknown
 	}
 	var hydratorStatus string
 	if app.Spec.SourceHydrator != nil {

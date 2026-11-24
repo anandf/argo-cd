@@ -21,11 +21,12 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8scache "k8s.io/client-go/tools/cache"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	apps "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+	informer "github.com/argoproj/argo-cd/api/v3/pkg/client/informers/externalversions"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/project"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	apps "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
-	informer "github.com/argoproj/argo-cd/v3/pkg/client/informers/externalversions"
 	"github.com/argoproj/argo-cd/v3/server/rbacpolicy"
 	"github.com/argoproj/argo-cd/v3/test"
 	"github.com/argoproj/argo-cd/v3/util/assets"

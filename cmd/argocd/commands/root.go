@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/cmd/argocd/commands/admin"
 	"github.com/argoproj/argo-cd/v3/cmd/argocd/commands/initialize"
 	cmdutil "github.com/argoproj/argo-cd/v3/cmd/util"
@@ -15,7 +17,6 @@ import (
 	argocdclient "github.com/argoproj/argo-cd/v3/pkg/apiclient"
 	"github.com/argoproj/argo-cd/v3/util/cli"
 	"github.com/argoproj/argo-cd/v3/util/config"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	"github.com/argoproj/argo-cd/v3/util/errors"
 	"github.com/argoproj/argo-cd/v3/util/localconfig"
 )

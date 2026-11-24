@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/argoproj/argo-cd/v3/util/glob"
+	"github.com/argoproj/argo-cd/api/v3/util/glob"
 
 	"github.com/argoproj/argo-cd/v3/util/notification/k8s"
 
@@ -32,7 +32,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
 )
 
 const (

@@ -13,11 +13,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
+	synccommon "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/hook"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 	"github.com/argoproj/argo-cd/v3/util/lua"
@@ -51,12 +51,12 @@ func testHookSuccessful(t *testing.T, hookType HookType) {
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		Expect(ResourceSyncStatusIs("Pod", "pod", SyncStatusCodeSynced)).
-		Expect(ResourceHealthIs("Pod", "pod", health.HealthStatusHealthy)).
+		Expect(ResourceHealthIs("Pod", "pod", HealthStatusHealthy)).
 		Expect(ResourceResultNumbering(2)).
 		Expect(ResourceResultIs(ResourceResult{Version: "v1", Kind: "Pod", Namespace: ctx.DeploymentNamespace(), Images: []string{"quay.io/argoprojlabs/argocd-e2e-container:0.1"}, Name: "hook", Status: ResultCodeSynced, Message: "pod/hook created", HookType: hookType, HookPhase: OperationSucceeded, SyncPhase: SyncPhase(hookType)})).
 		Expect(Pod(func(p corev1.Pod) bool {
 			// Completed hooks should not have a finalizer
-			_, isHook := p.GetAnnotations()[AnnotationKeyHook]
+			_, isHook := p.GetAnnotations()[synccommon.AnnotationKeyHook]
 			hasFinalizer := controllerutil.ContainsFinalizer(&p, hook.HookFinalizer)
 			return isHook && !hasFinalizer
 		}))
@@ -184,11 +184,11 @@ func TestPreSyncHookFailure(t *testing.T) {
 		Expect(OperationPhaseIs(OperationFailed)).
 		Expect(ResourceResultNumbering(1)).
 		Expect(ResourceResultIs(ResourceResult{Version: "v1", Kind: "Pod", Namespace: ctx.DeploymentNamespace(), Images: []string{"quay.io/argoprojlabs/argocd-e2e-container:0.1"}, Name: "hook", Status: ResultCodeSynced, Message: `container "main" failed with exit code 1`, HookType: HookTypePreSync, HookPhase: OperationFailed, SyncPhase: SyncPhase(HookTypePreSync)})).
-		Expect(ResourceHealthIs("Pod", "pod", health.HealthStatusMissing)).
+		Expect(ResourceHealthIs("Pod", "pod", HealthStatusMissing)).
 		Expect(ResourceSyncStatusIs("Pod", "pod", SyncStatusCodeOutOfSync)).
 		Expect(Pod(func(p corev1.Pod) bool {
 			// Completed hooks should not have a finalizer
-			_, isHook := p.GetAnnotations()[AnnotationKeyHook]
+			_, isHook := p.GetAnnotations()[synccommon.AnnotationKeyHook]
 			hasFinalizer := controllerutil.ContainsFinalizer(&p, hook.HookFinalizer)
 			return isHook && !hasFinalizer
 		}))
@@ -212,7 +212,7 @@ func TestSyncHookFailure(t *testing.T) {
 		Expect(ResourceSyncStatusIs("Pod", "pod", SyncStatusCodeSynced)).
 		Expect(Pod(func(p corev1.Pod) bool {
 			// Completed hooks should not have a finalizer
-			_, isHook := p.GetAnnotations()[AnnotationKeyHook]
+			_, isHook := p.GetAnnotations()[synccommon.AnnotationKeyHook]
 			hasFinalizer := controllerutil.ContainsFinalizer(&p, hook.HookFinalizer)
 			return isHook && !hasFinalizer
 		}))
@@ -228,7 +228,7 @@ func TestSyncHookResourceFailure(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusProgressing))
+		Expect(HealthIs(HealthStatusProgressing))
 }
 
 // make sure that if post-sync fails, we fail the app and we did create the pod
@@ -249,7 +249,7 @@ func TestPostSyncHookFailure(t *testing.T) {
 		Expect(ResourceSyncStatusIs("Pod", "pod", SyncStatusCodeSynced)).
 		Expect(Pod(func(p corev1.Pod) bool {
 			// Completed hooks should not have a finalizer
-			_, isHook := p.GetAnnotations()[AnnotationKeyHook]
+			_, isHook := p.GetAnnotations()[synccommon.AnnotationKeyHook]
 			hasFinalizer := controllerutil.ContainsFinalizer(&p, hook.HookFinalizer)
 			return isHook && !hasFinalizer
 		}))
@@ -270,7 +270,7 @@ func TestPostSyncHookPodFailure(t *testing.T) {
 		// TODO - I feel like this should be a failure, not success
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		Expect(ResourceSyncStatusIs("Pod", "pod", SyncStatusCodeSynced)).
-		Expect(ResourceHealthIs("Pod", "pod", health.HealthStatusDegraded)).
+		Expect(ResourceHealthIs("Pod", "pod", HealthStatusDegraded)).
 		Expect(ResourceResultNumbering(1)).
 		Expect(NotPod(func(p corev1.Pod) bool { return p.Name == "hook" }))
 }
@@ -357,7 +357,7 @@ spec:
 		Expect(OperationPhaseIs(OperationFailed)).
 		Expect(Pod(func(p corev1.Pod) bool {
 			// Completed hooks should not have a finalizer
-			_, isHook := p.GetAnnotations()[AnnotationKeyHook]
+			_, isHook := p.GetAnnotations()[synccommon.AnnotationKeyHook]
 			hasFinalizer := controllerutil.ContainsFinalizer(&p, hook.HookFinalizer)
 			return p.GetName() == "failed-sync-fail-hook" && isHook && !hasFinalizer
 		}))
@@ -400,7 +400,7 @@ spec:
 		Expect(OperationPhaseIs(OperationFailed)).
 		Expect(Pod(func(p corev1.Pod) bool {
 			// Completed hooks should not have a finalizer
-			_, isHook := p.GetAnnotations()[AnnotationKeyHook]
+			_, isHook := p.GetAnnotations()[synccommon.AnnotationKeyHook]
 			hasFinalizer := controllerutil.ContainsFinalizer(&p, hook.HookFinalizer)
 			return p.GetName() == "hook" && isHook && !hasFinalizer
 		}))
@@ -460,7 +460,7 @@ spec:
 		Expect(OperationPhaseIs(OperationFailed)).
 		Expect(Pod(func(p corev1.Pod) bool {
 			// Completed hooks should not have a finalizer
-			_, isHook := p.GetAnnotations()[AnnotationKeyHook]
+			_, isHook := p.GetAnnotations()[synccommon.AnnotationKeyHook]
 			hasFinalizer := controllerutil.ContainsFinalizer(&p, hook.HookFinalizer)
 			return p.GetName() == "successful-sync-fail-hook" && isHook && !hasFinalizer
 		}))
@@ -538,7 +538,7 @@ func TestHookBeforeHookCreation(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(ResourceResultNumbering(2)).
 		// the app will be in health+n-sync before this hook has run
 		Expect(Pod(func(p corev1.Pod) bool { return p.Name == "hook" })).
@@ -555,7 +555,7 @@ func TestHookBeforeHookCreation(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(ResourceResultNumbering(2)).
 		Expect(Pod(func(p corev1.Pod) bool { return p.Name == "hook" })).
 		And(func(_ *Application) {
@@ -692,14 +692,14 @@ func testHookFinalizer(t *testing.T, hookType HookType) {
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		Expect(ResourceSyncStatusIs("Pod", "pod", SyncStatusCodeSynced)).
-		Expect(ResourceHealthIs("Pod", "pod", health.HealthStatusHealthy)).
+		Expect(ResourceHealthIs("Pod", "pod", HealthStatusHealthy)).
 		Expect(ResourceResultNumbering(2)).
 		Expect(ResourceResultIs(ResourceResult{Group: "batch", Version: "v1", Kind: "Job", Namespace: ctx.DeploymentNamespace(), Name: "hook", Images: []string{"quay.io/argoprojlabs/argocd-e2e-container:0.1"}, Message: "Resource has finalizer", HookType: hookType, Status: ResultCodeSynced, HookPhase: OperationSucceeded, SyncPhase: SyncPhase(hookType)}))
 }
 
 // test terminate operation stops running hooks
 func TestTerminateWithRunningHooks(t *testing.T) {
-	newHook := func(name string, deletePolicy HookDeletePolicy, cmd string) string {
+	newHook := func(name string, deletePolicy synccommon.HookDeletePolicy, cmd string) string {
 		return fmt.Sprintf(`
 apiVersion: v1
 kind: Pod
@@ -724,7 +724,7 @@ spec:
 				return p.GetName() == name
 			}),
 			Pod(func(p corev1.Pod) bool {
-				_, isHook := p.GetAnnotations()[AnnotationKeyHook]
+				_, isHook := p.GetAnnotations()[synccommon.AnnotationKeyHook]
 				hasFinalizer := controllerutil.ContainsFinalizer(&p, hook.HookFinalizer)
 				return p.GetName() == name && isHook && !hasFinalizer && p.GetDeletionTimestamp() != nil
 			}))
@@ -732,7 +732,7 @@ spec:
 
 	podWithoutFinalizer := func(name string) Expectation {
 		return Pod(func(p corev1.Pod) bool {
-			_, isHook := p.GetAnnotations()[AnnotationKeyHook]
+			_, isHook := p.GetAnnotations()[synccommon.AnnotationKeyHook]
 			hasFinalizer := controllerutil.ContainsFinalizer(&p, hook.HookFinalizer)
 			return p.GetName() == name && isHook && !hasFinalizer
 		})
@@ -742,12 +742,12 @@ spec:
 	ctx.Path("hook").
 		Async(true).
 		When().
-		AddFile("running-delete-on-success.yaml", newHook("running-delete-on-success", HookDeletePolicyHookSucceeded, "sleep 300")).
-		AddFile("running-delete-on-create.yaml", newHook("running-delete-on-create", HookDeletePolicyBeforeHookCreation, "sleep 300")).
-		AddFile("running-delete-on-failed.yaml", newHook("running-delete-on-failed", HookDeletePolicyHookFailed, "sleep 300")).
-		AddFile("complete-delete-on-success.yaml", newHook("complete-delete-on-success", HookDeletePolicyHookSucceeded, "true")).
-		AddFile("complete-delete-on-create.yaml", newHook("complete-delete-on-create", HookDeletePolicyBeforeHookCreation, "true")).
-		AddFile("complete-delete-on-failed.yaml", newHook("complete-delete-on-failed", HookDeletePolicyHookFailed, "true")).
+		AddFile("running-delete-on-success.yaml", newHook("running-delete-on-success", synccommon.HookDeletePolicyHookSucceeded, "sleep 300")).
+		AddFile("running-delete-on-create.yaml", newHook("running-delete-on-create", synccommon.HookDeletePolicyBeforeHookCreation, "sleep 300")).
+		AddFile("running-delete-on-failed.yaml", newHook("running-delete-on-failed", synccommon.HookDeletePolicyHookFailed, "sleep 300")).
+		AddFile("complete-delete-on-success.yaml", newHook("complete-delete-on-success", synccommon.HookDeletePolicyHookSucceeded, "true")).
+		AddFile("complete-delete-on-create.yaml", newHook("complete-delete-on-create", synccommon.HookDeletePolicyBeforeHookCreation, "true")).
+		AddFile("complete-delete-on-failed.yaml", newHook("complete-delete-on-failed", synccommon.HookDeletePolicyHookFailed, "true")).
 		CreateApp().
 		Sync().
 		Then().

@@ -19,7 +19,8 @@ import (
 
 	"github.com/argoproj/argo-cd/v3/util/errors"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/util/cli"
 
 	// load the gcp plugin (required to authenticate against GKE clusters).
@@ -29,7 +30,7 @@ import (
 	// load the azure plugin (required to authenticate with AKS clusters).
 	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
 )
 
 // NewProjectAllowListGenCommand generates a project from clusterRole

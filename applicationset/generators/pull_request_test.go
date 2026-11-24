@@ -8,8 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	argoprojiov1alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	pullrequest "github.com/argoproj/argo-cd/v3/applicationset/services/pull_request"
-	argoprojiov1alpha1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 )
 
 func TestPullRequestGithubGenerateParams(t *testing.T) {

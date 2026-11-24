@@ -44,20 +44,29 @@ sed -e '/go install/d' "${CODEGEN_PKG}/kube_codegen.sh" > ${TARGET_SCRIPT}
 sed -i.bak -e 's#${GOBIN}/##g' ${TARGET_SCRIPT}
 
 [ -e ./v3 ] || ln -s . v3
+[ -e ./api/v3 ] || ln -s . ./api/v3
 [ -e "${GOPATH_PROJECT_ROOT}" ] || (mkdir -p "$(dirname "${GOPATH_PROJECT_ROOT}")" && ln -s "${PROJECT_ROOT}" "${GOPATH_PROJECT_ROOT}")
 
-# shellcheck source=pkg/apis/application/v1alpha1/kube_codegen.sh
-. ${TARGET_SCRIPT}
+# shellcheck source=kube_codegen.sh
+. ${PROJECT_ROOT}/${TARGET_SCRIPT}
+
+# The API types and generated clients live in the nested api module. The generators derive the
+# generated import paths from the main module, so they have to run with that module as the main
+# one -- from the root module they would emit github.com/argoproj/argo-cd/v3/api/... paths.
+cd "${PROJECT_ROOT}/api"
 
 kube::codegen::gen_helpers pkg/apis/application/v1alpha1
 kube::codegen::gen_client pkg/apis \
   --output-dir pkg/client \
-  --output-pkg github.com/argoproj/argo-cd/v3/pkg/client \
+  --output-pkg github.com/argoproj/argo-cd/api/v3/pkg/client \
   --boilerplate "${PROJECT_ROOT}/hack/custom-boilerplate.go.txt" \
   --with-watch
+
+cd "${PROJECT_ROOT}"
 
 rm ${TARGET_SCRIPT}
 rm ${TARGET_SCRIPT}.bak
 
 [ -L "${GOPATH_PROJECT_ROOT}" ] && rm -rf "${GOPATH_PROJECT_ROOT}"
+[ -L ./api/v3 ] && rm -rf ./api/v3
 [ -L ./v3 ] && rm -rf v3

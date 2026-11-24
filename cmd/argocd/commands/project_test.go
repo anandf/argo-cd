@@ -17,10 +17,11 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	argocdclient "github.com/argoproj/argo-cd/v3/pkg/apiclient"
 	projectpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/project"
 	projectmocks "github.com/argoproj/argo-cd/v3/pkg/apiclient/project/mocks"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/test"
 )
 

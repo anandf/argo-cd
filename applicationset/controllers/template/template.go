@@ -10,7 +10,7 @@ import (
 	"github.com/argoproj/argo-cd/v3/applicationset/generators"
 	"github.com/argoproj/argo-cd/v3/applicationset/utils"
 
-	argov1alpha1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	argov1alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 )
 
 func GenerateApplications(logCtx *log.Entry, applicationSetInfo argov1alpha1.ApplicationSet, g map[string]generators.Generator, renderer utils.Renderer, client client.Client) ([]argov1alpha1.Application, argov1alpha1.ApplicationSetReasonType, error) {

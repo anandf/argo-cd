@@ -19,7 +19,8 @@ import (
 
 	"github.com/argoproj/argo-cd/v3/util/lua"
 
-	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	appv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	argoutil "github.com/argoproj/argo-cd/v3/util/argo"
 	traceutil "github.com/argoproj/argo-cd/v3/util/trace"
 )

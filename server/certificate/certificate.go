@@ -3,8 +3,9 @@ package certificate
 import (
 	"context"
 
+	appsv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	certificatepkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/certificate"
-	appsv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/db"
 	"github.com/argoproj/argo-cd/v3/util/rbac"
 )

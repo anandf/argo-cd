@@ -5,13 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/version"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 )
@@ -32,7 +31,7 @@ func TestCustomToolWithGitCreds(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			output, err := fixture.Run("", "kubectl", "-n", ctx.DeploymentNamespace(), "get", "cm", ctx.AppName(), "-o", "jsonpath={.metadata.annotations.GitAskpass}")
 			require.NoError(t, err)
@@ -58,7 +57,7 @@ func TestCustomToolWithGitCredsTemplate(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			output, err := fixture.Run("", "kubectl", "-n", ctx.DeploymentNamespace(), "get", "cm", ctx.AppName(), "-o", "jsonpath={.metadata.annotations.GitAskpass}")
 			require.NoError(t, err)
@@ -94,7 +93,7 @@ func TestCustomToolWithSSHGitCreds(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			output, err := fixture.Run("", "kubectl", "-n", ctx.DeploymentNamespace(), "get", "cm", ctx.GetName(), "-o", "jsonpath={.metadata.annotations.GitSSHCommand}")
 			require.NoError(t, err)
@@ -150,7 +149,7 @@ func TestCustomToolWithEnv(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			output, err := fixture.Run("", "kubectl", "-n", ctx.DeploymentNamespace(), "get", "cm", ctx.AppName(), "-o", "jsonpath={.metadata.annotations.Bar}")
 			require.NoError(t, err)
@@ -193,7 +192,7 @@ func TestCMPDiscoverWithFileName(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 // Discover by Find glob
@@ -207,7 +206,7 @@ func TestCMPDiscoverWithFindGlob(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 // Discover by Plugin Name
@@ -224,7 +223,7 @@ func TestCMPDiscoverWithPluginName(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 // Discover by Find command
@@ -240,7 +239,7 @@ func TestCMPDiscoverWithFindCommandWithEnv(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			output, err := fixture.Run("", "kubectl", "-n", ctx.DeploymentNamespace(), "get", "cm", ctx.AppName(), "-o", "jsonpath={.metadata.annotations.Bar}")
 			require.NoError(t, err)
@@ -312,7 +311,7 @@ func TestCMPWithSymlinkPartialFiles(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 func TestCMPWithSymlinkFiles(t *testing.T) {
@@ -325,7 +324,7 @@ func TestCMPWithSymlinkFiles(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 func TestCMPWithSymlinkFolder(t *testing.T) {
@@ -338,5 +337,5 @@ func TestCMPWithSymlinkFolder(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }

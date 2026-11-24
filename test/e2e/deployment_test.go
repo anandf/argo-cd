@@ -20,10 +20,8 @@ import (
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/util/clusterauth"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 )
@@ -38,7 +36,7 @@ func TestDeployment(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		PatchFile("deployment.yaml", `[
     {
@@ -62,7 +60,7 @@ func TestDeploymentWithAnnotationTrackingMode(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		Then().
 		And(func(_ *Application) {
@@ -85,7 +83,7 @@ func TestDeploymentWithLabelTrackingMode(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		Then().
 		And(func(_ *Application) {
@@ -108,7 +106,7 @@ func TestDeploymentWithoutTrackingMode(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		Then().
 		And(func(_ *Application) {
@@ -146,7 +144,7 @@ func TestDeployToKubernetesAPIURLWithQueryParameter(t *testing.T) {
 				Then().
 				Expect(OperationPhaseIs(OperationSucceeded)).
 				Expect(SyncStatusIs(SyncStatusCodeSynced)).
-				Expect(HealthIs(health.HealthStatusHealthy))
+				Expect(HealthIs(HealthStatusHealthy))
 		}
 	}
 }

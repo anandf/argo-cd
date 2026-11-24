@@ -19,12 +19,13 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	argoappv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/cmd/argocd/commands/headless"
 	cmdutil "github.com/argoproj/argo-cd/v3/cmd/util"
 	"github.com/argoproj/argo-cd/v3/common"
 	argocdclient "github.com/argoproj/argo-cd/v3/pkg/apiclient"
 	clusterpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/cluster"
-	argoappv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/cli"
 	"github.com/argoproj/argo-cd/v3/util/clusterauth"
 	"github.com/argoproj/argo-cd/v3/util/errors"

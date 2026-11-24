@@ -6,8 +6,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 
+	appv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/applicationset/utils"
-	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 )
 
 func applyTemplatePatch(app *appv1.Application, templatePatch string) (*appv1.Application, error) {

@@ -3,14 +3,13 @@ package progressivesync
 import (
 	"testing"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	argov1alpha1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	argov1alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 )
 
 // Regression tests for the progressive-sync reconcile loop: updateApplicationSetApplicationStatus
@@ -70,7 +69,7 @@ func regressionApp(rev string, automatedEnabled *bool) argov1alpha1.Application 
 		},
 		Status: argov1alpha1.ApplicationStatus{
 			Sync:   argov1alpha1.SyncStatus{Status: argov1alpha1.SyncStatusCodeUnknown, Revision: "abc123"},
-			Health: argov1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+			Health: argov1alpha1.AppHealthStatus{Status: argov1alpha1.HealthStatusHealthy},
 		},
 	}
 	return app

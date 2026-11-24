@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/diff"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -23,9 +21,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	applicationpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	accountFixture "github.com/argoproj/argo-cd/v3/test/e2e/fixture/account"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
@@ -33,7 +32,8 @@ import (
 	repoFixture "github.com/argoproj/argo-cd/v3/test/e2e/fixture/repos"
 	"github.com/argoproj/argo-cd/v3/test/e2e/testdata"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
+
 	. "github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/errors"
 	utilio "github.com/argoproj/argo-cd/v3/util/io"
@@ -84,7 +84,7 @@ func TestNamespacedGetLogsDeny(t *testing.T) {
 		CreateApp().
 		Sync().
 		Then().
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			_, err := fixture.RunCliWithRetry(5, "app", "logs", ctx.AppQualifiedName(), "--kind", "Deployment", "--group", "", "--name", "guestbook-ui")
 			assert.ErrorContains(t, err, "permission denied")
@@ -136,7 +136,7 @@ func TestNamespacedGetLogsAllowNS(t *testing.T) {
 		CreateApp().
 		Sync().
 		Then().
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			out, err := fixture.RunCliWithRetry(5, "app", "logs", ctx.AppQualifiedName(), "--kind", "Deployment", "--group", "", "--name", "guestbook-ui")
 			require.NoError(t, err)
@@ -244,7 +244,7 @@ func TestNamespacedDeleteAppResource(t *testing.T) {
 		Sync().
 		Then().
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			// app should be listed
 			if _, err := fixture.RunCli("app", "delete-resource", ctx.AppQualifiedName(), "--kind", "Service", "--resource-name", "guestbook-ui"); err != nil {
@@ -252,8 +252,8 @@ func TestNamespacedDeleteAppResource(t *testing.T) {
 			}
 		}).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
-		Expect(ResourceHealthIs("Service", "guestbook-ui", health.HealthStatusMissing))
+		Expect(HealthIs(HealthStatusHealthy)).
+		Expect(ResourceHealthIs("Service", "guestbook-ui", HealthStatusMissing))
 }
 
 // demonstrate that we cannot use a standard sync when an immutable field is changed, we must use "force"
@@ -271,7 +271,7 @@ func TestNamespacedImmutableChange(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		PatchFile("secrets.yaml", `[{"op": "add", "path": "/data/new-field", "value": "dGVzdDI="}]`).
 		IgnoreErrors().
@@ -299,7 +299,7 @@ func TestNamespacedImmutableChange(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 func TestNamespacedInvalidAppProject(t *testing.T) {
@@ -380,7 +380,7 @@ func TestNamespacedTrackAppStateAndSyncApp(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(Success(fmt.Sprintf("Service     %s  guestbook-ui  Synced ", ctx.DeploymentNamespace()))).
 		Expect(Success(fmt.Sprintf("apps   Deployment  %s  guestbook-ui  Synced", ctx.DeploymentNamespace()))).
 		Expect(NamespacedEvent(fixture.AppNamespace(), EventReasonResourceUpdated, "sync")).
@@ -759,7 +759,7 @@ func TestNamespacedResourceDiffing(t *testing.T) {
 }
 
 // func TestCRDs(t *testing.T) {
-// 	testEdgeCasesApplicationResources(t, "crd-creation", health.HealthStatusHealthy)
+// 	testEdgeCasesApplicationResources(t, "crd-creation", HealthStatusHealthy)
 // }
 
 func TestNamespacedKnownTypesInCRDDiffing(t *testing.T) {
@@ -798,14 +798,14 @@ func TestNamespacedKnownTypesInCRDDiffing(t *testing.T) {
 
 // TODO(jannfis): This somehow doesn't work -- I suspect tracking method
 // func TestNamespacedDuplicatedResources(t *testing.T) {
-// 	testNSEdgeCasesApplicationResources(t, "duplicated-resources", health.HealthStatusHealthy)
+// 	testNSEdgeCasesApplicationResources(t, "duplicated-resources", HealthStatusHealthy)
 // }
 
 func TestNamespacedConfigMap(t *testing.T) {
-	testNSEdgeCasesApplicationResources(t, "config-map", health.HealthStatusHealthy, "my-map  Synced                configmap/my-map created")
+	testNSEdgeCasesApplicationResources(t, "config-map", HealthStatusHealthy, "my-map  Synced                configmap/my-map created")
 }
 
-func testNSEdgeCasesApplicationResources(t *testing.T, appPath string, statusCode health.HealthStatusCode, message ...string) {
+func testNSEdgeCasesApplicationResources(t *testing.T, appPath string, statusCode HealthStatusCode, message ...string) {
 	t.Helper()
 	ctx := Given(t)
 	expect := ctx.
@@ -1761,8 +1761,8 @@ func TestNamespacedNamespaceAutoCreation(t *testing.T) {
 		Sync().
 		Then().
 		Expect(Success("")).
-		Expect(OperationPhaseIs(OperationSucceeded)).Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, health.HealthStatusHealthy)).
-		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, health.HealthStatusHealthy)).
+		Expect(OperationPhaseIs(OperationSucceeded)).Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, HealthStatusHealthy)).
+		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, HealthStatusHealthy)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, SyncStatusCodeSynced)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, SyncStatusCodeSynced)).
 		When().
@@ -1827,8 +1827,8 @@ func TestNamespacedNamespaceAutoCreationWithMetadata(t *testing.T) {
 			assert.Equal(t, map[string]string{"foo": "bar"}, app.Spec.SyncPolicy.ManagedNamespaceMetadata.Labels)
 			assert.Equal(t, map[string]string{"bar": "bat"}, app.Spec.SyncPolicy.ManagedNamespaceMetadata.Annotations)
 		})).
-		Expect(OperationPhaseIs(OperationSucceeded)).Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, health.HealthStatusHealthy)).
-		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, health.HealthStatusHealthy)).
+		Expect(OperationPhaseIs(OperationSucceeded)).Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, HealthStatusHealthy)).
+		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, HealthStatusHealthy)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, SyncStatusCodeSynced)).
 		When().
 		And(func() {
@@ -1919,8 +1919,8 @@ func TestNamespacedNamespaceAutoCreationWithMetadataAndNsManifest(t *testing.T) 
 			assert.Equal(t, map[string]string{"test": "true"}, ns.Labels)
 			assert.Equal(t, map[string]string{"foo": "bar", "something": "else"}, ns.Annotations)
 		})).
-		Expect(OperationPhaseIs(OperationSucceeded)).Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", namespace, health.HealthStatusHealthy)).
-		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", namespace, health.HealthStatusHealthy)).
+		Expect(OperationPhaseIs(OperationSucceeded)).Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", namespace, HealthStatusHealthy)).
+		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", namespace, HealthStatusHealthy)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", namespace, SyncStatusCodeSynced))
 }
 
@@ -2041,8 +2041,8 @@ metadata:
 			assert.Equal(t, map[string]string{"argocd.argoproj.io/sync-options": "ServerSideApply=true", "bar": "bat"}, ns.Annotations)
 			assert.Equal(t, map[string]string{"bar": "bat"}, app.Spec.SyncPolicy.ManagedNamespaceMetadata.Annotations)
 		})).
-		Expect(OperationPhaseIs(OperationSucceeded)).Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, health.HealthStatusHealthy)).
-		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, health.HealthStatusHealthy)).
+		Expect(OperationPhaseIs(OperationSucceeded)).Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, HealthStatusHealthy)).
+		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, HealthStatusHealthy)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, SyncStatusCodeSynced))
 }
 
@@ -2214,7 +2214,7 @@ func TestNamespacedAppLogs(t *testing.T) {
 		CreateApp().
 		Sync().
 		Then().
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(app *Application) {
 			out, err := fixture.RunCliWithRetry(5, "app", "logs", app.QualifiedName(), "--kind", "Deployment", "--group", "", "--name", "guestbook-ui")
 			require.NoError(t, err)

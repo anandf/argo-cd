@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	appfake "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
+	appfake "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
 
 	"github.com/argoproj/argo-cd/v3/applicationset/progressivesync"
 
@@ -31,15 +31,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 
 	"github.com/argoproj/argo-cd/v3/applicationset/generators"
 	"github.com/argoproj/argo-cd/v3/applicationset/generators/mocks"
 	appsetmetrics "github.com/argoproj/argo-cd/v3/applicationset/metrics"
 	"github.com/argoproj/argo-cd/v3/applicationset/utils"
 	argocommon "github.com/argoproj/argo-cd/v3/common"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/pkg/ratelimiter"
 	applog "github.com/argoproj/argo-cd/v3/util/app/log"
 	"github.com/argoproj/argo-cd/v3/util/db"
@@ -4016,7 +4015,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 							Status: v1alpha1.SyncStatusCodeSynced,
 						},
 						Health: v1alpha1.AppHealthStatus{
-							Status: health.HealthStatusHealthy,
+							Status: v1alpha1.HealthStatusHealthy,
 						},
 					},
 				},
@@ -4026,7 +4025,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 					Name:   "app1",
 					Status: v1alpha1.SyncStatusCodeSynced,
 					Health: &v1alpha1.HealthStatus{
-						Status: health.HealthStatusHealthy,
+						Status: v1alpha1.HealthStatusHealthy,
 					},
 				},
 			},
@@ -4044,7 +4043,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 							Name:   "app1",
 							Status: v1alpha1.SyncStatusCodeSynced,
 							Health: &v1alpha1.HealthStatus{
-								Status: health.HealthStatusHealthy,
+								Status: v1alpha1.HealthStatusHealthy,
 							},
 						},
 					},
@@ -4058,7 +4057,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 							Status: v1alpha1.SyncStatusCodeSynced,
 						},
 						Health: v1alpha1.AppHealthStatus{
-							Status: health.HealthStatusHealthy,
+							Status: v1alpha1.HealthStatusHealthy,
 						},
 					},
 				},
@@ -4068,7 +4067,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 					Name:   "app1",
 					Status: v1alpha1.SyncStatusCodeSynced,
 					Health: &v1alpha1.HealthStatus{
-						Status: health.HealthStatusHealthy,
+						Status: v1alpha1.HealthStatusHealthy,
 					},
 				},
 			},
@@ -4086,7 +4085,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 							Name:   "app1",
 							Status: v1alpha1.SyncStatusCodeOutOfSync,
 							Health: &v1alpha1.HealthStatus{
-								Status:  health.HealthStatusProgressing,
+								Status:  v1alpha1.HealthStatusProgressing,
 								Message: "this is progressing",
 							},
 						},
@@ -4101,7 +4100,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 							Status: v1alpha1.SyncStatusCodeSynced,
 						},
 						Health: v1alpha1.AppHealthStatus{
-							Status: health.HealthStatusHealthy,
+							Status: v1alpha1.HealthStatusHealthy,
 						},
 					},
 				},
@@ -4111,7 +4110,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 					Name:   "app1",
 					Status: v1alpha1.SyncStatusCodeSynced,
 					Health: &v1alpha1.HealthStatus{
-						Status: health.HealthStatusHealthy,
+						Status: v1alpha1.HealthStatusHealthy,
 					},
 				},
 			},
@@ -4129,7 +4128,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 							Name:   "app1",
 							Status: v1alpha1.SyncStatusCodeSynced,
 							Health: &v1alpha1.HealthStatus{
-								Status:  health.HealthStatusHealthy,
+								Status:  v1alpha1.HealthStatusHealthy,
 								Message: "OK",
 							},
 						},
@@ -4152,7 +4151,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 							Name:   "app1",
 							Status: v1alpha1.SyncStatusCodeOutOfSync,
 							Health: &v1alpha1.HealthStatus{
-								Status:  health.HealthStatusProgressing,
+								Status:  v1alpha1.HealthStatusProgressing,
 								Message: "this is progressing",
 							},
 						},
@@ -4160,7 +4159,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 							Name:   "app2",
 							Status: v1alpha1.SyncStatusCodeOutOfSync,
 							Health: &v1alpha1.HealthStatus{
-								Status:  health.HealthStatusProgressing,
+								Status:  v1alpha1.HealthStatusProgressing,
 								Message: "this is progressing",
 							},
 						},
@@ -4175,7 +4174,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 							Status: v1alpha1.SyncStatusCodeSynced,
 						},
 						Health: v1alpha1.AppHealthStatus{
-							Status: health.HealthStatusHealthy,
+							Status: v1alpha1.HealthStatusHealthy,
 						},
 					},
 				},
@@ -4186,7 +4185,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 							Status: v1alpha1.SyncStatusCodeSynced,
 						},
 						Health: v1alpha1.AppHealthStatus{
-							Status: health.HealthStatusHealthy,
+							Status: v1alpha1.HealthStatusHealthy,
 						},
 					},
 				},
@@ -4196,7 +4195,7 @@ func TestUpdateResourceStatus(t *testing.T) {
 					Name:   "app1",
 					Status: v1alpha1.SyncStatusCodeSynced,
 					Health: &v1alpha1.HealthStatus{
-						Status: health.HealthStatusHealthy,
+						Status: v1alpha1.HealthStatusHealthy,
 					},
 				},
 			},
@@ -4238,7 +4237,7 @@ func generateNAppResourceStatuses(n int) []v1alpha1.ResourceStatus {
 				Name:   "app" + strconv.Itoa(i),
 				Status: v1alpha1.SyncStatusCodeSynced,
 				Health: &v1alpha1.HealthStatus{
-					Status: health.HealthStatusHealthy,
+					Status: v1alpha1.HealthStatusHealthy,
 				},
 			},
 		)
@@ -4256,7 +4255,7 @@ func generateNHealthyApps(n int) []v1alpha1.Application {
 					Status: v1alpha1.SyncStatusCodeSynced,
 				},
 				Health: v1alpha1.AppHealthStatus{
-					Status: health.HealthStatusHealthy,
+					Status: v1alpha1.HealthStatusHealthy,
 				},
 			},
 		})
@@ -4361,12 +4360,12 @@ func TestApplicationOwnsHandler(t *testing.T) {
 			e: event.UpdateEvent{
 				ObjectOld: &v1alpha1.Application{Status: v1alpha1.ApplicationStatus{
 					Health: v1alpha1.AppHealthStatus{
-						Status: health.HealthStatusUnknown,
+						Status: v1alpha1.HealthStatusUnknown,
 					},
 				}},
 				ObjectNew: &v1alpha1.Application{Status: v1alpha1.ApplicationStatus{
 					Health: v1alpha1.AppHealthStatus{
-						Status: health.HealthStatusHealthy,
+						Status: v1alpha1.HealthStatusHealthy,
 					},
 				}},
 			},
@@ -5474,7 +5473,7 @@ func TestPerformProgressiveSyncsWithReconciliationCheck(t *testing.T) {
 					Status: v1alpha1.ApplicationStatus{
 						ReconciledAt: &after,
 						Health: v1alpha1.AppHealthStatus{
-							Status: health.HealthStatusHealthy,
+							Status: v1alpha1.HealthStatusHealthy,
 						},
 						Sync: v1alpha1.SyncStatus{
 							Status:   v1alpha1.SyncStatusCodeSynced,

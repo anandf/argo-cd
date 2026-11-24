@@ -4,12 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 )
@@ -32,12 +31,12 @@ func TestFixingDegradedApp(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationFailed)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusDegraded)).
+		Expect(HealthIs(HealthStatusDegraded)).
 		Expect(ResourceResultNumbering(1)).
 		Expect(ResourceSyncStatusIs("ConfigMap", "cm-1", SyncStatusCodeSynced)).
-		Expect(ResourceHealthIs("ConfigMap", "cm-1", health.HealthStatusDegraded)).
+		Expect(ResourceHealthIs("ConfigMap", "cm-1", HealthStatusDegraded)).
 		Expect(ResourceSyncStatusIs("ConfigMap", "cm-2", SyncStatusCodeOutOfSync)).
-		Expect(ResourceHealthIs("ConfigMap", "cm-2", health.HealthStatusMissing)).
+		Expect(ResourceHealthIs("ConfigMap", "cm-2", HealthStatusMissing)).
 		When().
 		Then().
 		And(func(app *Application) {
@@ -55,12 +54,12 @@ func TestFixingDegradedApp(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(ResourceResultNumbering(2)).
 		Expect(ResourceSyncStatusIs("ConfigMap", "cm-1", SyncStatusCodeSynced)).
-		Expect(ResourceHealthIs("ConfigMap", "cm-1", health.HealthStatusHealthy)).
+		Expect(ResourceHealthIs("ConfigMap", "cm-1", HealthStatusHealthy)).
 		Expect(ResourceSyncStatusIs("ConfigMap", "cm-2", SyncStatusCodeSynced)).
-		Expect(ResourceHealthIs("ConfigMap", "cm-2", health.HealthStatusHealthy)).
+		Expect(ResourceHealthIs("ConfigMap", "cm-2", HealthStatusHealthy)).
 		When().
 		Then().
 		And(func(app *Application) {
@@ -85,7 +84,7 @@ func TestOneProgressingDeploymentIsSucceededAndSynced(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusProgressing)).
+		Expect(HealthIs(HealthStatusProgressing)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		Expect(ResourceResultNumbering(1))
 }
@@ -111,7 +110,7 @@ func TestDegradedDeploymentIsSucceededAndSynced(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusDegraded)).
+		Expect(HealthIs(HealthStatusDegraded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		Expect(ResourceResultNumbering(1))
 }
@@ -138,7 +137,7 @@ func TestSyncPruneOrderWithSyncWaves(t *testing.T) {
 		Wait().
 		Then().
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		// delete files to remove resources
 		DeleteFile("pod.yaml").
@@ -154,7 +153,7 @@ func TestSyncPruneOrderWithSyncWaves(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(NotPod(func(p corev1.Pod) bool { return p.Name == "pod-with-finalizers" })).
 		Expect(ResourceResultNumbering(4))
 }

@@ -10,7 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	accountFixture "github.com/argoproj/argo-cd/v3/test/e2e/fixture/account"
 	projectFixture "github.com/argoproj/argo-cd/v3/test/e2e/fixture/project"
 	repoFixture "github.com/argoproj/argo-cd/v3/test/e2e/fixture/repos"

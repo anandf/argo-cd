@@ -19,11 +19,12 @@ import (
 
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	commitclient "github.com/argoproj/argo-cd/v3/commitserver/apiclient"
 	commitservermocks "github.com/argoproj/argo-cd/v3/commitserver/apiclient/mocks"
 	"github.com/argoproj/argo-cd/v3/controller/hydrator/mocks"
 	"github.com/argoproj/argo-cd/v3/controller/hydrator/types"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	repoclient "github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	reposervermocks "github.com/argoproj/argo-cd/v3/reposerver/apiclient/mocks"
 	"github.com/argoproj/argo-cd/v3/util/settings"

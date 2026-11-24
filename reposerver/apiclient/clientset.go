@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/common"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	utiltls "github.com/argoproj/argo-cd/v3/util/tls"
 
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/retry"

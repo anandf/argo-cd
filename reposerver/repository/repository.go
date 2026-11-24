@@ -25,6 +25,7 @@ import (
 	gocache "github.com/patrickmn/go-cache"
 	"sigs.k8s.io/yaml"
 
+	"github.com/argoproj/argo-cd/v3/util/repocreds"
 	"github.com/argoproj/argo-cd/v3/util/sourceintegrity"
 
 	"github.com/argoproj/argo-cd/v3/util/oci"
@@ -52,9 +53,11 @@ import (
 	k8sversion "k8s.io/apimachinery/pkg/util/version"
 	kubeyaml "k8s.io/apimachinery/pkg/util/yaml"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/util/glob"
+
 	pluginclient "github.com/argoproj/argo-cd/v3/cmpserver/apiclient"
 	"github.com/argoproj/argo-cd/v3/common"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/reposerver/cache"
 	"github.com/argoproj/argo-cd/v3/reposerver/metrics"
@@ -63,7 +66,6 @@ import (
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/cmp"
 	"github.com/argoproj/argo-cd/v3/util/git"
-	"github.com/argoproj/argo-cd/v3/util/glob"
 	"github.com/argoproj/argo-cd/v3/util/grpc"
 	"github.com/argoproj/argo-cd/v3/util/helm"
 	utilio "github.com/argoproj/argo-cd/v3/util/io"
@@ -218,7 +220,7 @@ func (s *Service) Init() error {
 
 // ListOCITags List a subset of the refs (currently, branches and tags) of a git repo
 func (s *Service) ListOCITags(ctx context.Context, q *apiclient.ListRefsRequest) (*apiclient.Refs, error) {
-	ociClient, err := s.newOCIClient(q.Repo.Repo, q.Repo.GetOCICreds(), q.Repo.Proxy, q.Repo.NoProxy, s.initConstants.OCIMediaTypes, s.ociClientStandardOpts()...)
+	ociClient, err := s.newOCIClient(q.Repo.Repo, repocreds.GetOCICreds(q.Repo), q.Repo.Proxy, q.Repo.NoProxy, s.initConstants.OCIMediaTypes, s.ociClientStandardOpts()...)
 	if err != nil {
 		return nil, fmt.Errorf("error creating oci client: %w", err)
 	}
@@ -1221,7 +1223,7 @@ func getHelmRepos(appPath string, repositories []*v1alpha1.Repository, helmRepoC
 				}
 			}
 		}
-		repos = append(repos, helm.HelmRepository{Name: repo.Name, Repo: repo.Repo, Creds: repo.GetHelmCreds(), EnableOci: repo.EnableOCI || repo.Type == "oci", InsecureOCIForceHttp: repo.InsecureOCIForceHttp})
+		repos = append(repos, helm.HelmRepository{Name: repo.Name, Repo: repo.Repo, Creds: repocreds.GetHelmCreds(repo), EnableOci: repo.EnableOCI || repo.Type == "oci", InsecureOCIForceHttp: repo.InsecureOCIForceHttp})
 	}
 	return repos, nil
 }
@@ -1812,7 +1814,7 @@ func GenerateManifests(ctx context.Context, appPath, repoRoot, revision string, 
 		if err != nil {
 			return nil, fmt.Errorf("could not parse kubernetes version %s: %w", q.ApplicationSource.GetKubeVersionOrDefault(q.KubeVersion), err)
 		}
-		k := kustomize.NewKustomizeApp(repoRoot, appPath, q.Repo.GetGitCreds(gitCredsStore), repoURL, kustomizeBinary, q.Repo.Proxy, q.Repo.NoProxy)
+		k := kustomize.NewKustomizeApp(repoRoot, appPath, repocreds.GetGitCreds(q.Repo, gitCredsStore), repoURL, kustomizeBinary, q.Repo.Proxy, q.Repo.NoProxy)
 		targetObjs, _, commands, err = k.Build(q.ApplicationSource.Kustomize, q.KustomizeOptions, env, &kustomize.BuildOpts{
 			KubeVersion: kubeVersion,
 			APIVersions: q.ApplicationSource.GetAPIVersionsOrDefault(q.ApiVersions),
@@ -1826,7 +1828,7 @@ func GenerateManifests(ctx context.Context, appPath, repoRoot, revision string, 
 			pluginName = q.ApplicationSource.Plugin.Name
 		}
 		// if pluginName is provided it has to be `<metadata.name>-<spec.version>` or just `<metadata.name>` if plugin version is empty
-		targetObjs, err = runConfigManagementPluginSidecars(ctx, appPath, repoRoot, pluginName, env, q, q.Repo.GetGitCreds(gitCredsStore), opt.cmpTarDoneCh, opt.cmpTarExcludedGlobs, opt.cmpUseManifestGeneratePaths)
+		targetObjs, err = runConfigManagementPluginSidecars(ctx, appPath, repoRoot, pluginName, env, q, repocreds.GetGitCreds(q.Repo, gitCredsStore), opt.cmpTarDoneCh, opt.cmpTarExcludedGlobs, opt.cmpUseManifestGeneratePaths)
 		if err != nil {
 			return nil, fmt.Errorf("CMP processing failed for application %q: %w", q.AppName, err)
 		}
@@ -2795,7 +2797,7 @@ func populateKustomizeAppDetails(res *apiclient.RepoAppDetailsResponse, q *apicl
 	if err != nil {
 		return fmt.Errorf("failed to get kustomize binary path: %w", err)
 	}
-	k := kustomize.NewKustomizeApp(repoRoot, appPath, q.Repo.GetGitCreds(credsStore), q.Repo.Repo, kustomizeBinary, q.Repo.Proxy, q.Repo.NoProxy)
+	k := kustomize.NewKustomizeApp(repoRoot, appPath, repocreds.GetGitCreds(q.Repo, credsStore), q.Repo.Repo, kustomizeBinary, q.Repo.Proxy, q.Repo.NoProxy)
 	fakeManifestRequest := apiclient.ManifestRequest{
 		AppName:           q.AppName,
 		Namespace:         "", // FIXME: omit it for now
@@ -2953,7 +2955,7 @@ func (s *Service) GetOCIMetadata(ctx context.Context, q *apiclient.RepoServerRev
 		log.Warnf("oci metadata cache error %s/%s: %v", q.Repo.Repo, q.Revision, err)
 	}
 
-	client, err := s.newOCIClient(q.Repo.Repo, q.Repo.GetOCICreds(), q.Repo.Proxy, q.Repo.NoProxy, s.initConstants.OCIMediaTypes, s.ociClientStandardOpts()...)
+	client, err := s.newOCIClient(q.Repo.Repo, repocreds.GetOCICreds(q.Repo), q.Repo.Proxy, q.Repo.NoProxy, s.initConstants.OCIMediaTypes, s.ociClientStandardOpts()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize oci client: %w", err)
 	}
@@ -3033,7 +3035,7 @@ func (s *Service) newClient(repo *v1alpha1.Repository, opts ...git.ClientOpts) (
 		git.WithEventHandlers(metrics.NewGitClientEventHandlers(s.metricsServer)),
 		git.WithBuiltinGitConfig(s.initConstants.EnableBuiltinGitConfig),
 		git.WithOptimizedLsRemote(s.initConstants.GitLsRemoteOptimizedEnabled))
-	return s.newGitClient(repo.Repo, repoPath, repo.GetGitCreds(s.gitCredsStore), repo.IsInsecure(), repo.EnableLFS, repo.Proxy, repo.NoProxy, opts...)
+	return s.newGitClient(repo.Repo, repoPath, repocreds.GetGitCreds(repo, s.gitCredsStore), repo.IsInsecure(), repo.EnableLFS, repo.Proxy, repo.NoProxy, opts...)
 }
 
 // newClientResolveRevision is a helper to perform the common task of instantiating a git client
@@ -3052,7 +3054,7 @@ func (s *Service) newClientResolveRevision(repo *v1alpha1.Repository, revision s
 }
 
 func (s *Service) newOCIClientResolveRevision(ctx context.Context, repo *v1alpha1.Repository, revision string, noRevisionCache bool) (oci.Client, string, error) {
-	ociClient, err := s.newOCIClient(repo.Repo, repo.GetOCICreds(), repo.Proxy, repo.NoProxy, s.initConstants.OCIMediaTypes, s.ociClientStandardOpts()...)
+	ociClient, err := s.newOCIClient(repo.Repo, repocreds.GetOCICreds(repo), repo.Proxy, repo.NoProxy, s.initConstants.OCIMediaTypes, s.ociClientStandardOpts()...)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to initialize oci client: %w", err)
 	}
@@ -3071,7 +3073,7 @@ func (s *Service) newHelmClientResolveRevision(ctx context.Context, repo *v1alph
 	if repo.InsecureOCIForceHttp {
 		opts = append(opts, helm.WithPlainHTTP())
 	}
-	helmClient := s.newHelmClient(repo.Repo, repo.GetHelmCreds(), enableOCI, repo.Proxy, repo.NoProxy, opts...)
+	helmClient := s.newHelmClient(repo.Repo, repocreds.GetHelmCreds(repo), enableOCI, repo.Proxy, repo.NoProxy, opts...)
 
 	// Note: This check runs the risk of returning a version which is not found in the helm registry.
 	if versions.IsVersion(revision) {
@@ -3241,7 +3243,7 @@ func checkoutRevision(ctx context.Context, gitClient git.Client, revision string
 }
 
 func (s *Service) GetHelmCharts(ctx context.Context, q *apiclient.HelmChartsRequest) (*apiclient.HelmChartsResponse, error) {
-	index, err := s.newHelmClient(q.Repo.Repo, q.Repo.GetHelmCreds(), q.Repo.EnableOCI, q.Repo.Proxy, q.Repo.NoProxy, helm.WithIndexCache(s.cache), helm.WithChartPaths(s.chartPaths)).GetIndex(ctx, true, s.initConstants.HelmRegistryMaxIndexSize)
+	index, err := s.newHelmClient(q.Repo.Repo, repocreds.GetHelmCreds(q.Repo), q.Repo.EnableOCI, q.Repo.Proxy, q.Repo.NoProxy, helm.WithIndexCache(s.cache), helm.WithChartPaths(s.chartPaths)).GetIndex(ctx, true, s.initConstants.HelmRegistryMaxIndexSize)
 	if err != nil {
 		return nil, err
 	}
@@ -3263,10 +3265,10 @@ func (s *Service) TestRepository(ctx context.Context, q *apiclient.TestRepositor
 	}
 	checks := map[string]func() error{
 		"git": func() error {
-			return git.TestRepo(repo.Repo, repo.GetGitCreds(s.gitCredsStore), repo.IsInsecure(), repo.IsLFSEnabled(), repo.Proxy, repo.NoProxy)
+			return git.TestRepo(repo.Repo, repocreds.GetGitCreds(repo, s.gitCredsStore), repo.IsInsecure(), repo.IsLFSEnabled(), repo.Proxy, repo.NoProxy)
 		},
 		"oci": func() error {
-			client, err := oci.NewClient(repo.Repo, repo.GetOCICreds(), repo.Proxy, repo.NoProxy,
+			client, err := oci.NewClient(repo.Repo, repocreds.GetOCICreds(repo), repo.Proxy, repo.NoProxy,
 				s.initConstants.OCIMediaTypes, oci.WithEventHandlers(metrics.NewOCIClientEventHandlers(s.metricsServer)))
 			if err != nil {
 				return err
@@ -3283,10 +3285,10 @@ func (s *Service) TestRepository(ctx context.Context, q *apiclient.TestRepositor
 				if repo.InsecureOCIForceHttp {
 					clientOpts = append(clientOpts, helm.WithPlainHTTP())
 				}
-				_, err := helm.NewClient(repo.Repo, repo.GetHelmCreds(), repo.EnableOCI, repo.Proxy, repo.NoProxy, clientOpts...).TestHelmOCI(ctx)
+				_, err := helm.NewClient(repo.Repo, repocreds.GetHelmCreds(repo), repo.EnableOCI, repo.Proxy, repo.NoProxy, clientOpts...).TestHelmOCI(ctx)
 				return err
 			}
-			_, err := helm.NewClient(repo.Repo, repo.GetHelmCreds(), repo.EnableOCI, repo.Proxy, repo.NoProxy).GetIndex(ctx, false, s.initConstants.HelmRegistryMaxIndexSize)
+			_, err := helm.NewClient(repo.Repo, repocreds.GetHelmCreds(repo), repo.EnableOCI, repo.Proxy, repo.NoProxy).GetIndex(ctx, false, s.initConstants.HelmRegistryMaxIndexSize)
 			return err
 		},
 	}

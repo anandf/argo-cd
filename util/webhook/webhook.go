@@ -17,7 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/util/workqueue"
 
-	alpha1 "github.com/argoproj/argo-cd/v3/pkg/client/listers/application/v1alpha1"
+	alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/client/listers/application/v1alpha1"
 
 	"github.com/Masterminds/semver/v3"
 	bitbucketv1 "github.com/gfleury/go-bitbucket-v1"
@@ -31,8 +31,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned"
+	"github.com/argoproj/argo-cd/api/v3/util/glob"
+
 	"github.com/argoproj/argo-cd/v3/reposerver/cache"
 	servercache "github.com/argoproj/argo-cd/v3/server/cache"
 	applog "github.com/argoproj/argo-cd/v3/util/app/log"
@@ -40,7 +42,6 @@ import (
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/db"
 	"github.com/argoproj/argo-cd/v3/util/git"
-	"github.com/argoproj/argo-cd/v3/util/glob"
 	"github.com/argoproj/argo-cd/v3/util/guard"
 	"github.com/argoproj/argo-cd/v3/util/settings"
 )

@@ -13,10 +13,11 @@ import (
 
 	"github.com/argoproj/argo-cd/v3/common"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appsfake "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
-	appinformers "github.com/argoproj/argo-cd/v3/pkg/client/informers/externalversions/application/v1alpha1"
-	applisters "github.com/argoproj/argo-cd/v3/pkg/client/listers/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appsfake "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+	appinformers "github.com/argoproj/argo-cd/api/v3/pkg/client/informers/externalversions/application/v1alpha1"
+	applisters "github.com/argoproj/argo-cd/api/v3/pkg/client/listers/application/v1alpha1"
+
 	cacheutil "github.com/argoproj/argo-cd/v3/util/cache"
 	"github.com/argoproj/argo-cd/v3/util/cache/appstate"
 	"github.com/argoproj/argo-cd/v3/util/db"

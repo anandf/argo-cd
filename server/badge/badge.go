@@ -7,16 +7,16 @@ import (
 	"strconv"
 	"strings"
 
-	healthutil "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	"github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned"
+	appv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned"
+	"github.com/argoproj/argo-cd/api/v3/util/security"
+
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/assets"
-	"github.com/argoproj/argo-cd/v3/util/security"
 	"github.com/argoproj/argo-cd/v3/util/settings"
 )
 
@@ -91,7 +91,7 @@ func replaceFirstGroupSubMatch(re *regexp.Regexp, str string, repl string) strin
 // ServeHTTP returns badge with health and sync status for application
 // (or an error badge if wrong query or application name is given)
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	health := healthutil.HealthStatusUnknown
+	health := appv1.HealthStatusUnknown
 	status := appv1.SyncStatusCodeUnknown
 	revision := ""
 	displayedRevision := ""
@@ -156,12 +156,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if a.Status.Sync.Status != appv1.SyncStatusCodeSynced {
 					status = appv1.SyncStatusCodeOutOfSync
 				}
-				if a.Status.Health.Status != healthutil.HealthStatusHealthy {
-					health = healthutil.HealthStatusDegraded
+				if a.Status.Health.Status != appv1.HealthStatusHealthy {
+					health = appv1.HealthStatusDegraded
 				}
 			}
-			if health != healthutil.HealthStatusDegraded && len(applicationSet) > 0 {
-				health = healthutil.HealthStatusHealthy
+			if health != appv1.HealthStatusDegraded && len(applicationSet) > 0 {
+				health = appv1.HealthStatusHealthy
 			}
 			if status != appv1.SyncStatusCodeOutOfSync && len(applicationSet) > 0 {
 				status = appv1.SyncStatusCodeSynced

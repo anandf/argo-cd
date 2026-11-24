@@ -12,8 +12,9 @@ import (
 
 	sessionmgr "github.com/argoproj/argo-cd/v3/util/session"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	settingspkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/settings"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/settings"
 )
 

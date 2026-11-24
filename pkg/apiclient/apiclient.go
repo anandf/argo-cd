@@ -30,6 +30,9 @@ import (
 	"google.golang.org/grpc/status"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	accountpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/account"
 	applicationpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
@@ -44,9 +47,7 @@ import (
 	sessionpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/session"
 	settingspkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/settings"
 	versionpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/version"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/argo"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	grpc_util "github.com/argoproj/argo-cd/v3/util/grpc"
 	http_util "github.com/argoproj/argo-cd/v3/util/http"
 	utilio "github.com/argoproj/argo-cd/v3/util/io"

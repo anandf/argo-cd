@@ -29,9 +29,10 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/util/openapi"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/controller/metrics"
 	"github.com/argoproj/argo-cd/v3/controller/syncid"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	applog "github.com/argoproj/argo-cd/v3/util/app/log"
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/argo/diff"
@@ -128,7 +129,7 @@ func (m *appStateManager) applyDiffImpersonationConfig(config *rest.Config, proj
 
 func NewOperationState(operation v1alpha1.Operation) *v1alpha1.OperationState {
 	return &v1alpha1.OperationState{
-		Phase:     common.OperationRunning,
+		Phase:     v1alpha1.OperationRunning,
 		Operation: operation,
 		StartedAt: metav1.Now(),
 	}
@@ -170,14 +171,14 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 	}()
 	syncId, err := syncid.Generate()
 	if err != nil {
-		state.Phase = common.OperationError
+		state.Phase = v1alpha1.OperationError
 		state.Message = fmt.Sprintf("Failed to generate sync ID: %v", err)
 		return
 	}
 	logEntry := log.WithFields(applog.GetAppLogFields(app)).WithField("syncId", syncId)
 
 	if state.Operation.Sync == nil {
-		state.Phase = common.OperationError
+		state.Phase = v1alpha1.OperationError
 		state.Message = "Invalid operation request: no operation specified"
 		return
 	}
@@ -191,9 +192,9 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 	// A terminate request must not be blocked by a sync window. Otherwise an operation that is
 	// no longer allowed to sync by its window can never be terminated and stays in the
 	// terminating phase forever.
-	if isBlocked, err := syncWindowPreventsSync(app, project); isBlocked && state.Phase != common.OperationTerminating {
+	if isBlocked, err := syncWindowPreventsSync(app, project); isBlocked && state.Phase != v1alpha1.OperationTerminating {
 		// If the operation is currently running, simply let the user know the sync is blocked by a current sync window
-		if state.Phase == common.OperationRunning {
+		if state.Phase == v1alpha1.OperationRunning {
 			state.Message = "Sync operation blocked by sync window"
 			if err != nil {
 				state.Message = fmt.Sprintf("%s: %v", state.Message, err)
@@ -213,7 +214,7 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 	// ignore error if CompareStateRepoError, this shouldn't happen as noRevisionCache is true
 	compareResult, err := m.CompareAppState(ctx, app, project, revisions, sources, false, true, syncOp.Manifests, isMultiSourceSync)
 	if err != nil && !stderrors.Is(err, ErrCompareStateRepo) {
-		state.Phase = common.OperationError
+		state.Phase = v1alpha1.OperationError
 		state.Message = err.Error()
 		return
 	}
@@ -226,7 +227,7 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 	// validates if it should fail the sync on that revision if it finds shared resources
 	hasSharedResource, sharedResourceMessage := hasSharedResourceCondition(app)
 	if syncOp.SyncOptions.HasOption("FailOnSharedResource=true") && hasSharedResource {
-		state.Phase = common.OperationFailed
+		state.Phase = v1alpha1.OperationFailed
 		state.Message = "Shared resource found: " + sharedResourceMessage
 		return
 	}
@@ -236,28 +237,28 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 		v1alpha1.ApplicationConditionComparisonError:  true,
 		v1alpha1.ApplicationConditionInvalidSpecError: true,
 	}); len(errConditions) > 0 {
-		state.Phase = common.OperationError
+		state.Phase = v1alpha1.OperationError
 		state.Message = argo.FormatAppConditions(errConditions)
 		return
 	}
 
 	destCluster, err := argo.GetDestinationCluster(ctx, app.Spec.Destination, m.db)
 	if err != nil {
-		state.Phase = common.OperationError
+		state.Phase = v1alpha1.OperationError
 		state.Message = fmt.Sprintf("Failed to get destination cluster: %v", err)
 		return
 	}
 
 	rawConfig, err := destCluster.RawRestConfig()
 	if err != nil {
-		state.Phase = common.OperationError
+		state.Phase = v1alpha1.OperationError
 		state.Message = err.Error()
 		return
 	}
 
 	clusterRESTConfig, err := destCluster.RESTConfig()
 	if err != nil {
-		state.Phase = common.OperationError
+		state.Phase = v1alpha1.OperationError
 		state.Message = err.Error()
 		return
 	}
@@ -265,7 +266,7 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 
 	resourceOverrides, err := m.settingsMgr.GetResourceOverrides()
 	if err != nil {
-		state.Phase = common.OperationError
+		state.Phase = v1alpha1.OperationError
 		state.Message = fmt.Sprintf("Failed to load resource overrides: %v", err)
 		return
 	}
@@ -276,10 +277,10 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 		initialResourcesRes[i] = common.ResourceSyncResult{
 			ResourceKey: key,
 			Message:     res.Message,
-			Status:      res.Status,
-			HookPhase:   res.HookPhase,
-			HookType:    res.HookType,
-			SyncPhase:   res.SyncPhase,
+			Status:      common.ResultCode(res.Status),
+			HookPhase:   common.OperationPhase(res.HookPhase),
+			HookType:    common.HookType(res.HookType),
+			SyncPhase:   common.SyncPhase(res.SyncPhase),
 			Version:     res.Version,
 			Images:      res.Images,
 			Order:       i + 1,
@@ -310,14 +311,14 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 	if syncOp.SyncOptions.HasOption("RespectIgnoreDifferences=true") {
 		openAPISchema, err := m.getOpenAPISchema(destCluster)
 		if err != nil {
-			state.Phase = common.OperationError
+			state.Phase = v1alpha1.OperationError
 			state.Message = fmt.Sprintf("failed to load openAPISchema: %v", err)
 			return
 		}
 
 		patchedTargets, err := normalizeTargetResources(openAPISchema, compareResult)
 		if err != nil {
-			state.Phase = common.OperationError
+			state.Phase = v1alpha1.OperationError
 			state.Message = fmt.Sprintf("Failed to normalize target resources: %s", err)
 			return
 		}
@@ -343,7 +344,7 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 	if impersonationEnabled {
 		serviceAccountToImpersonate, err := settings.DeriveServiceAccountToImpersonate(project, app, destCluster)
 		if err != nil {
-			state.Phase = common.OperationError
+			state.Phase = v1alpha1.OperationError
 			state.Message = fmt.Sprintf("failed to derive service account to impersonate: %v", err)
 			return
 		}
@@ -353,13 +354,13 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 			impersonationEnforced, enforcedErr := m.settingsMgr.IsImpersonationEnforced()
 			if enforcedErr != nil {
 				log.Errorf("could not get impersonation enforcement flag: %v", enforcedErr)
-				state.Phase = common.OperationError
+				state.Phase = v1alpha1.OperationError
 				state.Message = fmt.Sprintf("failed to check impersonation enforcement setting: %v", enforcedErr)
 				return
 			}
 
 			if impersonationEnforced {
-				state.Phase = common.OperationError
+				state.Phase = v1alpha1.OperationError
 				state.Message = fmt.Sprintf("no matching service account found for destination server %s and namespace %s", destCluster.Server, app.Spec.Destination.Namespace)
 				return
 			}
@@ -387,7 +388,7 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 			}, un, res)
 		}),
 		sync.WithOperationSettings(syncOp.DryRun, syncOp.Prune, syncOp.SyncStrategy.Force(), syncOp.IsApplyStrategy() || len(syncOp.Resources) > 0),
-		sync.WithInitialState(state.Phase, state.Message, initialResourcesRes, state.StartedAt),
+		sync.WithInitialState(common.OperationPhase(state.Phase), state.Message, initialResourcesRes, state.StartedAt),
 		sync.WithResourcesFilter(func(key kube.ResourceKey, target *unstructured.Unstructured, live *unstructured.Unstructured) bool {
 			return (len(syncOp.Resources) == 0 ||
 				isPostDeleteHook(target) ||
@@ -426,7 +427,7 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 		opts...,
 	)
 	if err != nil {
-		state.Phase = common.OperationError
+		state.Phase = v1alpha1.OperationError
 		state.Message = fmt.Sprintf("failed to initialize sync context: %v", err)
 		return
 	}
@@ -435,13 +436,15 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 
 	start := time.Now()
 
-	if state.Phase == common.OperationTerminating {
+	if state.Phase == v1alpha1.OperationTerminating {
 		syncCtx.Terminate(ctx)
 	} else {
 		syncCtx.Sync(ctx)
 	}
 	var resState []common.ResourceSyncResult
-	state.Phase, state.Message, resState = syncCtx.GetState()
+	var enginePhase common.OperationPhase
+	enginePhase, state.Message, resState = syncCtx.GetState()
+	state.Phase = v1alpha1.OperationPhase(enginePhase)
 	state.SyncResult.Resources = nil
 
 	if app.Spec.SyncPolicy != nil {
@@ -467,15 +470,15 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 		}
 
 		state.SyncResult.Resources = append(state.SyncResult.Resources, &v1alpha1.ResourceResult{
-			HookType:  res.HookType,
+			HookType:  v1alpha1.HookType(res.HookType),
 			Group:     res.ResourceKey.Group,
 			Kind:      res.ResourceKey.Kind,
 			Namespace: res.ResourceKey.Namespace,
 			Name:      res.ResourceKey.Name,
 			Version:   res.Version,
-			SyncPhase: res.SyncPhase,
-			HookPhase: res.HookPhase,
-			Status:    res.Status,
+			SyncPhase: v1alpha1.SyncPhase(res.SyncPhase),
+			HookPhase: v1alpha1.OperationPhase(res.HookPhase),
+			Status:    v1alpha1.ResultCode(res.Status),
 			Message:   res.Message,
 			Images:    res.Images,
 		})
@@ -486,7 +489,7 @@ func (m *appStateManager) SyncAppState(ctx context.Context, app *v1alpha1.Applic
 	if !syncOp.DryRun && len(syncOp.Resources) == 0 && state.Phase.Successful() {
 		err := m.persistRevisionHistory(app, compareResult.syncStatus.Revision, compareResult.syncStatus.ComparedTo.Source, compareResult.syncStatus.Revisions, compareResult.syncStatus.ComparedTo.Sources, isMultiSourceSync, state.StartedAt, state.Operation.InitiatedBy)
 		if err != nil {
-			state.Phase = common.OperationError
+			state.Phase = v1alpha1.OperationError
 			state.Message = fmt.Sprintf("failed to record sync to history: %v", err)
 		}
 	}

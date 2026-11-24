@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	clustermocks "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/cache/mocks"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -14,12 +13,13 @@ import (
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appfake "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	statecache "github.com/argoproj/argo-cd/v3/controller/cache"
 	cachemocks "github.com/argoproj/argo-cd/v3/controller/cache/mocks"
 	"github.com/argoproj/argo-cd/v3/controller/metrics"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appfake "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
 	argocdclient "github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient/mocks"
 	"github.com/argoproj/argo-cd/v3/test"
@@ -35,7 +35,7 @@ func TestGetReconcileResults(t *testing.T) {
 		Name:      "test",
 		Namespace: "default",
 		Status: v1alpha1.ApplicationStatus{
-			Health: v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+			Health: v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 			Sync:   v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeOutOfSync},
 		},
 	})
@@ -45,7 +45,7 @@ func TestGetReconcileResults(t *testing.T) {
 
 	expectedResults := []appReconcileResult{{
 		Name:   "test",
-		Health: health.HealthStatusHealthy,
+		Health: v1alpha1.HealthStatusHealthy,
 		Sync:   &v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeOutOfSync},
 	}}
 	assert.ElementsMatch(t, expectedResults, result)
@@ -121,7 +121,7 @@ func TestGetReconcileResults_Refresh(t *testing.T) {
 
 	require.NoError(t, err)
 
-	assert.Equal(t, health.HealthStatusMissing, result[0].Health)
+	assert.Equal(t, v1alpha1.HealthStatusMissing, result[0].Health)
 	assert.Equal(t, v1alpha1.SyncStatusCodeOutOfSync, result[0].Sync.Status)
 }
 

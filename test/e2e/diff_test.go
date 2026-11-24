@@ -6,8 +6,6 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	synccommon "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,13 +15,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
+
 	applicationpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
 	"github.com/argoproj/argo-cd/v3/test/e2e/testdata"
 	"github.com/argoproj/argo-cd/v3/util/errors"
 	utilio "github.com/argoproj/argo-cd/v3/util/io"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 )
@@ -53,7 +53,7 @@ data:
 		Sync().
 		Then().
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		// sensitive data should be masked in manifests output
 		And(func(app *Application) {
 			mnfs, _ := fixture.RunCli("app", "manifests", app.Name)
@@ -126,7 +126,7 @@ data:
 		Sync().
 		Then().
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		// invalidate secret
 		PatchFile("secrets.yaml", `[{"op": "replace", "path": "/data/password", "value": 12345}]`).
@@ -135,7 +135,7 @@ data:
 		Sync().
 		Then().
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(OperationPhaseIs(synccommon.OperationFailed)).
+		Expect(OperationPhaseIs(OperationFailed)).
 		// secret data shouldn't be exposed in manifests, diff & error output for invalid secret
 		And(func(app *Application) {
 			mnfs, _ := fixture.RunCli("app", "manifests", app.Name)
@@ -225,9 +225,9 @@ func testDiffResultsAreEmptyWithoutChanges(t *testing.T, appPath string, appName
 		CreateApp().
 		Sync().
 		Then().
-		Expect(OperationPhaseIs(synccommon.OperationSucceeded)).
+		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(app *Application) {
 			localRepoRoot := fixture.LocalRepoRoot()
 			appPath := filepath.Join(localRepoRoot, app.Spec.Source.Path)
@@ -269,8 +269,8 @@ func TestHelmRepoDiffLocal(t *testing.T) {
 		When().
 		Sync().
 		Then().
-		Expect(OperationPhaseIs(synccommon.OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(OperationPhaseIs(OperationSucceeded)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		And(func(_ *Application) {
 			appPath := "testdata/helm"
@@ -306,16 +306,16 @@ func TestCustomToolSyncAndDiffLocal(t *testing.T) {
 		CreateApp("--config-management-plugin", "cmp-kustomize-v1.0").
 		Sync("--local", appPath, "--local-repo-root", testdataPath).
 		Then().
-		Expect(OperationPhaseIs(synccommon.OperationSucceeded)).
+		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			_, err := fixture.RunCli("app", "sync", ctx.AppName(), "--local", appPath, "--local-repo-root", testdataPath)
 			require.NoError(t, err)
 		}).
-		Expect(OperationPhaseIs(synccommon.OperationSucceeded)).
+		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			diffOutput, err := fixture.RunCli("app", "diff", ctx.AppQualifiedName(), "--local", appPath, "--local-repo-root", testdataPath, "--exit-code=false")
 			require.NoError(t, err)
@@ -340,7 +340,7 @@ func TestServerSideDiffWithLocal(t *testing.T) {
 		CreateApp().
 		Sync().
 		Then().
-		Expect(OperationPhaseIs(synccommon.OperationSucceeded)).
+		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		And(func(_ *Application) {
 			// Modify the live deployment in the cluster to create differences
@@ -391,7 +391,7 @@ func TestServerSideDiffWithLocalValidation(t *testing.T) {
 		CreateApp().
 		Sync().
 		Then().
-		Expect(OperationPhaseIs(synccommon.OperationSucceeded)).
+		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		And(func(_ *Application) {
 			// Test that --server-side-diff with --local without --server-side-generate fails with proper error
@@ -496,7 +496,7 @@ func TestAppWithSecrets(t *testing.T) {
 		When().
 		Refresh(RefreshTypeNormal).
 		Then().
-		Expect(OperationPhaseIs(synccommon.OperationSucceeded)).
+		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		And(func(_ *Application) {
 			diffOutput := errors.NewHandler(t).FailOnErr(fixture.RunCli("app", "diff", ctx.AppQualifiedName())).(string)
@@ -627,7 +627,7 @@ func TestKnownTypesInCRDDiffing(t *testing.T) {
 	ctx := Given(t)
 	ctx.Path("crd-creation").
 		When().CreateApp().Sync().Then().
-		Expect(OperationPhaseIs(synccommon.OperationSucceeded)).Expect(SyncStatusIs(SyncStatusCodeSynced)).
+		Expect(OperationPhaseIs(OperationSucceeded)).Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		When().
 		And(func() {
 			dummyResIf := fixture.DynamicClientset.Resource(dummiesGVR).Namespace(ctx.DeploymentNamespace())

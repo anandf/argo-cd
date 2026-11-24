@@ -12,12 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/applicationset/generators"
 	genmock "github.com/argoproj/argo-cd/v3/applicationset/generators/mocks"
 	"github.com/argoproj/argo-cd/v3/applicationset/utils"
 	rendmock "github.com/argoproj/argo-cd/v3/applicationset/utils/mocks"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 )
 
 func TestGenerateApplications(t *testing.T) {

@@ -5,11 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/stretchr/testify/require"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 	"github.com/argoproj/argo-cd/v3/util/errors"
@@ -28,8 +27,8 @@ func TestSelectiveSync(t *testing.T) {
 		Expect(Success("")).
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(ResourceHealthIs("Service", "guestbook-ui", health.HealthStatusHealthy)).
-		Expect(ResourceHealthIs("Deployment", "guestbook-ui", health.HealthStatusMissing))
+		Expect(ResourceHealthIs("Service", "guestbook-ui", HealthStatusHealthy)).
+		Expect(ResourceHealthIs("Deployment", "guestbook-ui", HealthStatusMissing))
 }
 
 // when running selective sync, hooks do not run
@@ -45,8 +44,8 @@ func TestSelectiveSyncDoesNotRunHooks(t *testing.T) {
 		Expect(Success("")).
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
-		Expect(ResourceHealthIs("Pod", "pod", health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
+		Expect(ResourceHealthIs("Pod", "pod", HealthStatusHealthy)).
 		Expect(ResourceResultNumbering(1))
 }
 
@@ -73,8 +72,8 @@ func TestSelectiveSyncWithoutNamespace(t *testing.T) {
 		Expect(Success("")).
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", selectedResourceNamespace, health.HealthStatusHealthy)).
-		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", ctx.DeploymentNamespace(), health.HealthStatusHealthy)).
+		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", selectedResourceNamespace, HealthStatusHealthy)).
+		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", ctx.DeploymentNamespace(), HealthStatusHealthy)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", selectedResourceNamespace, SyncStatusCodeSynced)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", ctx.DeploymentNamespace(), SyncStatusCodeSynced))
 }
@@ -103,8 +102,8 @@ func TestSelectiveSyncWithNamespace(t *testing.T) {
 		Expect(Success("")).
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", selectedResourceNamespace, health.HealthStatusHealthy)).
-		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", ctx.DeploymentNamespace(), health.HealthStatusMissing)).
+		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", selectedResourceNamespace, HealthStatusHealthy)).
+		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", ctx.DeploymentNamespace(), HealthStatusMissing)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", selectedResourceNamespace, SyncStatusCodeSynced)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", ctx.DeploymentNamespace(), SyncStatusCodeOutOfSync))
 }

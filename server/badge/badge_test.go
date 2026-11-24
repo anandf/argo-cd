@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+
 	"github.com/argoproj/argo-cd/v3/util/settings"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -49,7 +49,7 @@ func testApp() *v1alpha1.Application {
 		Name: "test-app", Namespace: "default",
 		Status: v1alpha1.ApplicationStatus{
 			Sync:   v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-			Health: v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+			Health: v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 			OperationState: &v1alpha1.OperationState{
 				SyncResult: &v1alpha1.SyncOperationResult{
 					Revision: "aa29b85",
@@ -64,7 +64,7 @@ func testApp2() *v1alpha1.Application {
 		Name: "test-app", Namespace: "argocd-test",
 		Status: v1alpha1.ApplicationStatus{
 			Sync:   v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-			Health: v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+			Health: v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 			OperationState: &v1alpha1.OperationState{
 				SyncResult: &v1alpha1.SyncOperationResult{
 					Revision: "aa29b85",
@@ -79,7 +79,7 @@ func testApp3() *v1alpha1.Application {
 		Name: "test-app", Namespace: "argocd-test",
 		Status: v1alpha1.ApplicationStatus{
 			Sync:   v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced},
-			Health: v1alpha1.AppHealthStatus{Status: health.HealthStatusHealthy},
+			Health: v1alpha1.AppHealthStatus{Status: v1alpha1.HealthStatusHealthy},
 			OperationState: &v1alpha1.OperationState{
 				SyncResult: &v1alpha1.SyncOperationResult{
 					Revision: "aa29b85ababababababab",
@@ -346,7 +346,7 @@ func TestHandlerFeatureIsEnabledKeepFullRevisionAndWidthIsEnabled(t *testing.T) 
 	assert.Contains(t, response, "(aa29b85ababababababab)")
 }
 
-func createApplicationFeatureProjectIsEnabled(healthStatus health.HealthStatusCode, syncStatus v1alpha1.SyncStatusCode, appName, projectName, namespace string) *v1alpha1.Application {
+func createApplicationFeatureProjectIsEnabled(healthStatus v1alpha1.HealthStatusCode, syncStatus v1alpha1.SyncStatusCode, appName, projectName, namespace string) *v1alpha1.Application {
 	return &v1alpha1.Application{
 		Name: appName, Namespace: namespace,
 		Status: v1alpha1.ApplicationStatus{
@@ -368,14 +368,14 @@ func createApplications(appCombo, projectName []string, namespace string) []*v1a
 
 func createApplicationsWithName(appCombo, projectName []string, namespace string, namePrefix string) []*v1alpha1.Application {
 	apps := make([]*v1alpha1.Application, len(appCombo))
-	healthStatus := func(healthType string) health.HealthStatusCode {
+	healthStatus := func(healthType string) v1alpha1.HealthStatusCode {
 		switch healthType {
 		case "Healthy":
-			return health.HealthStatusHealthy
+			return v1alpha1.HealthStatusHealthy
 		case "Degraded":
-			return health.HealthStatusDegraded
+			return v1alpha1.HealthStatusDegraded
 		default:
-			return health.HealthStatusUnknown
+			return v1alpha1.HealthStatusUnknown
 		}
 	}
 	syncStatus := func(syncType string) v1alpha1.SyncStatusCode {

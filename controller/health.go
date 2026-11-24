@@ -10,9 +10,10 @@ import (
 	kubeutil "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
+	appv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/common"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
-	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	applog "github.com/argoproj/argo-cd/v3/util/app/log"
 	"github.com/argoproj/argo-cd/v3/util/lua"
 )
@@ -22,13 +23,13 @@ const maxHealthCausesShown = 3
 
 // setApplicationHealth updates the health statuses of all resources performed in the comparison.
 // It returns the aggregated application health status along with the resources that caused that status.
-func setApplicationHealth(resources []managedResource, statuses []appv1.ResourceStatus, resourceOverrides map[string]appv1.ResourceOverride, app *appv1.Application, persistResourceHealth bool) (health.HealthStatusCode, string, error) {
+func setApplicationHealth(resources []managedResource, statuses []appv1.ResourceStatus, resourceOverrides map[string]appv1.ResourceOverride, app *appv1.Application, persistResourceHealth bool) (appv1.HealthStatusCode, string, error) {
 	var savedErr error
 	var errCount uint
 	var containsResources, containsLiveResources bool
 	var causes []managedResource
 
-	appHealthStatus := health.HealthStatusHealthy
+	appHealthStatus := appv1.HealthStatusHealthy
 	for i, res := range resources {
 		if res.Target != nil && hookutil.Skip(res.Target) {
 			continue
@@ -71,34 +72,38 @@ func setApplicationHealth(resources []managedResource, statuses []appv1.Resource
 			continue
 		}
 
+		// Convert once here, at the boundary with gitops-engine, so the rest of this function
+		// works in the API type that is ultimately persisted on the Application.
+		resStatus := appv1.HealthStatusCode(healthStatus.Status)
+
 		if persistResourceHealth {
-			resHealth := appv1.HealthStatus{Status: healthStatus.Status, Message: healthStatus.Message}
+			resHealth := appv1.HealthStatus{Status: resStatus, Message: healthStatus.Message}
 			statuses[i].Health = &resHealth
 		} else {
 			statuses[i].Health = nil
 		}
 
 		// Missing resources should not affect parent app health - the OutOfSync status already indicates resources are missing
-		if res.Live == nil && healthStatus.Status == health.HealthStatusMissing {
+		if res.Live == nil && resStatus == appv1.HealthStatusMissing {
 			continue
 		}
 
 		// Missing or Unknown health status of child Argo CD app should not affect parent
-		if res.Kind == application.ApplicationKind && res.Group == application.Group && (healthStatus.Status == health.HealthStatusMissing || healthStatus.Status == health.HealthStatusUnknown) {
+		if res.Kind == application.ApplicationKind && res.Group == application.Group && (resStatus == appv1.HealthStatusMissing || resStatus == appv1.HealthStatusUnknown) {
 			continue
 		}
 
-		if health.IsWorse(appHealthStatus, healthStatus.Status) {
-			appHealthStatus = healthStatus.Status
+		if health.IsWorse(health.HealthStatusCode(appHealthStatus), healthStatus.Status) {
+			appHealthStatus = resStatus
 			causes = []managedResource{res}
-		} else if appHealthStatus == healthStatus.Status && appHealthStatus != health.HealthStatusHealthy {
+		} else if appHealthStatus == resStatus && appHealthStatus != appv1.HealthStatusHealthy {
 			causes = append(causes, res)
 		}
 	}
 
 	// If the app is expected to have resources but does not contain any live resources, set the app health to missing
-	if containsResources && !containsLiveResources && health.IsWorse(appHealthStatus, health.HealthStatusMissing) {
-		appHealthStatus = health.HealthStatusMissing
+	if containsResources && !containsLiveResources && health.IsWorse(health.HealthStatusCode(appHealthStatus), health.HealthStatusMissing) {
+		appHealthStatus = appv1.HealthStatusMissing
 		causes = nil
 	}
 

@@ -4,12 +4,11 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 	"github.com/argoproj/argo-cd/v3/util/errors"
@@ -60,7 +59,7 @@ func TestKustomize2AppSource(t *testing.T) {
 		Expect(Success("")).
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(patchLabelMatchesFor("Service")).
 		And(patchLabelMatchesFor("Deployment"))
 }
@@ -76,7 +75,7 @@ func TestSyncStatusOptionIgnore(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(app *Application) {
 			resourceStatus := app.Status.Resources[0]
 			assert.Contains(t, resourceStatus.Name, "my-map-")
@@ -97,7 +96,7 @@ func TestSyncStatusOptionIgnore(t *testing.T) {
 		// this is a key check - we expect the app to be healthy because, even though we have a resources that needs
 		// pruning, because it is annotated with IgnoreExtraneous it should not contribute to the sync status
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(app *Application) {
 			assert.Len(t, app.Status.Resources, 2)
 			for _, resourceStatus := range app.Status.Resources {
@@ -136,7 +135,7 @@ func TestKustomizeDeclarativeInvalidApp(t *testing.T) {
 		Declarative("declarative-apps/app.yaml").
 		Then().
 		Expect(Success("")).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeUnknown)).
 		Expect(Condition(ApplicationConditionComparisonError, "invalid-kustomize/does-not-exist.yaml: no such file or directory"))
 }
@@ -156,7 +155,7 @@ func TestKustomizeBuildOptionsLoadRestrictor(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		Given().
 		And(func() {
@@ -216,7 +215,7 @@ func TestKustomizeReplicas2AppSource(t *testing.T) {
 		Expect(Success("")).
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(checkReplicasFor("Deployment"))
 }
 

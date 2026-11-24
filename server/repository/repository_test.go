@@ -18,12 +18,13 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8scache "k8s.io/client-go/tools/cache"
 
+	appsv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	fakeapps "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+	appinformer "github.com/argoproj/argo-cd/api/v3/pkg/client/informers/externalversions"
+	applisters "github.com/argoproj/argo-cd/api/v3/pkg/client/listers/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/repository"
-	appsv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	fakeapps "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
-	appinformer "github.com/argoproj/argo-cd/v3/pkg/client/informers/externalversions"
-	applisters "github.com/argoproj/argo-cd/v3/pkg/client/listers/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient/mocks"
 	"github.com/argoproj/argo-cd/v3/server/cache"
@@ -35,7 +36,7 @@ import (
 	"github.com/argoproj/argo-cd/v3/util/rbac"
 	"github.com/argoproj/argo-cd/v3/util/settings"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
 )
 
 const testNamespace = "default"

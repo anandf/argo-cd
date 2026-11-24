@@ -14,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	cmdutil "github.com/argoproj/argo-cd/v3/cmd/util"
 	"github.com/argoproj/argo-cd/v3/commitserver"
 	"github.com/argoproj/argo-cd/v3/commitserver/apiclient"
@@ -21,7 +23,6 @@ import (
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/util/askpass"
 	"github.com/argoproj/argo-cd/v3/util/cli"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	"github.com/argoproj/argo-cd/v3/util/errors"
 	"github.com/argoproj/argo-cd/v3/util/gpgsign"
 	utilgrpc "github.com/argoproj/argo-cd/v3/util/grpc"

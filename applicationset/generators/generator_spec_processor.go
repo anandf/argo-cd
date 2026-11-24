@@ -11,7 +11,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/labels"
 
-	argoprojiov1alpha1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	argoprojiov1alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 
 	"dario.cat/mergo"
 	log "github.com/sirupsen/logrus"

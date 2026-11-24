@@ -19,6 +19,8 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	versionpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/version"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
@@ -26,7 +28,6 @@ import (
 	"github.com/argoproj/argo-cd/v3/reposerver/metrics"
 	"github.com/argoproj/argo-cd/v3/reposerver/repository"
 	"github.com/argoproj/argo-cd/v3/server/version"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	"github.com/argoproj/argo-cd/v3/util/git"
 	grpc_util "github.com/argoproj/argo-cd/v3/util/grpc"
 	tlsutil "github.com/argoproj/argo-cd/v3/util/tls"

@@ -10,7 +10,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -24,6 +23,10 @@ import (
 
 	"github.com/argoproj/argo-cd/v3/util/tls"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned"
+	appinformers "github.com/argoproj/argo-cd/api/v3/pkg/client/informers/externalversions"
+
 	cmdutil "github.com/argoproj/argo-cd/v3/cmd/util"
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/controller"
@@ -31,9 +34,6 @@ import (
 	"github.com/argoproj/argo-cd/v3/controller/metrics"
 	"github.com/argoproj/argo-cd/v3/controller/sharding"
 	argocdclient "github.com/argoproj/argo-cd/v3/pkg/apiclient"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned"
-	appinformers "github.com/argoproj/argo-cd/v3/pkg/client/informers/externalversions"
 	reposerverclient "github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/argo/normalizers"
@@ -146,7 +146,7 @@ func NewGenAppSpecCommand() *cobra.Command {
 
 type appReconcileResult struct {
 	Name       string                          `json:"name"`
-	Health     health.HealthStatusCode         `json:"health"`
+	Health     v1alpha1.HealthStatusCode       `json:"health"`
 	Sync       *v1alpha1.SyncStatus            `json:"sync"`
 	Conditions []v1alpha1.ApplicationCondition `json:"conditions"`
 }

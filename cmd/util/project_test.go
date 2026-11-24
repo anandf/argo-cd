@@ -11,7 +11,7 @@ import (
 
 	"github.com/argoproj/argo-cd/v3/util/test"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 )
 
 func TestProjectOpts_ResourceLists(t *testing.T) {

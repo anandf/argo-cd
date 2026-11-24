@@ -9,8 +9,7 @@ import (
 	"time"
 
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/diff"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
+	synccommon "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -23,9 +22,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	applicationpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	accountFixture "github.com/argoproj/argo-cd/v3/test/e2e/fixture/account"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
@@ -88,7 +88,7 @@ func TestGetLogsDeny(t *testing.T) {
 		CreateApp().
 		Sync().
 		Then().
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(app *Application) {
 			_, err := fixture.RunCliWithRetry(appLogsRetryCount, "app", "logs", app.Name, "--kind", "Deployment", "--group", "", "--name", "guestbook-ui")
 			assert.ErrorContains(t, err, "permission denied")
@@ -137,7 +137,7 @@ func TestGetLogsAllow(t *testing.T) {
 		CreateApp().
 		Sync().
 		Then().
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(app *Application) {
 			out, err := fixture.RunCliWithRetry(appLogsRetryCount, "app", "logs", app.Name, "--kind", "Deployment", "--group", "", "--name", "guestbook-ui")
 			require.NoError(t, err)
@@ -277,7 +277,7 @@ func TestGetAppResource(t *testing.T) {
 		CreateApp().
 		Sync().
 		Then().
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(_ *Application) {
 			out, err := fixture.RunCli("app", "get-resource", ctx.GetName(), "--kind", "Service", "--resource-name", "guestbook-ui")
 			require.NoError(t, err)
@@ -322,8 +322,8 @@ func TestDeleteAppResource(t *testing.T) {
 			}
 		}).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
-		Expect(ResourceHealthIs("Service", "guestbook-ui", health.HealthStatusMissing))
+		Expect(HealthIs(HealthStatusHealthy)).
+		Expect(ResourceHealthIs("Service", "guestbook-ui", HealthStatusMissing))
 }
 
 // Fix for issue #2677, support PATCH in HTTP service
@@ -355,7 +355,7 @@ func TestImmutableChange(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		PatchFile("secrets.yaml", `[{"op": "add", "path": "/data/new-field", "value": "dGVzdDI="}]`).
 		IgnoreErrors().
@@ -383,7 +383,7 @@ func TestImmutableChange(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 func TestMultiSyncCRDClientSideSame(t *testing.T) {
@@ -593,7 +593,7 @@ func TestTrackAppStateAndSyncApp(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(Success(fmt.Sprintf("Service     %s  guestbook-ui  Synced ", ctx.DeploymentNamespace()))).
 		Expect(Success(fmt.Sprintf("apps   Deployment  %s  guestbook-ui  Synced", ctx.DeploymentNamespace()))).
 		Expect(Event(argo.EventReasonResourceUpdated, "sync")).
@@ -673,7 +673,7 @@ func TestComparisonFailsIfDestinationClusterIsInvalid(t *testing.T) {
 		Sync().
 		Then().
 		Expect(Success("")).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		When().
 		And(func() {
@@ -682,7 +682,7 @@ func TestComparisonFailsIfDestinationClusterIsInvalid(t *testing.T) {
 		Refresh(RefreshTypeNormal).
 		Then().
 		Expect(Success("")).
-		Expect(HealthIs(health.HealthStatusUnknown)).
+		Expect(HealthIs(HealthStatusUnknown)).
 		Expect(SyncStatusIs(SyncStatusCodeUnknown)).
 		Expect(Condition(ApplicationConditionInvalidSpecError, "there are no clusters with this name"))
 }
@@ -697,14 +697,14 @@ func TestComparisonFailsIfInClusterDisabled(t *testing.T) {
 		Sync().
 		Then().
 		Expect(Success("")).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		When().
 		SetParamInSettingConfigMap("cluster.inClusterEnabled", "false").
 		Refresh(RefreshTypeNormal).
 		Then().
 		Expect(Success("")).
-		Expect(HealthIs(health.HealthStatusUnknown)).
+		Expect(HealthIs(HealthStatusUnknown)).
 		Expect(SyncStatusIs(SyncStatusCodeUnknown)).
 		Expect(Condition(ApplicationConditionInvalidSpecError, fmt.Sprintf("cluster %q is disabled", KubernetesInternalAPIServerAddr)))
 }
@@ -1268,7 +1268,7 @@ func TestPermissions(t *testing.T) {
 		CreateApp().
 		Sync().
 		Then().
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		// make sure application resource actions are successful
 		And(func(app *Application) {
 			assertResourceActions(t, app.Name, true, appCtx.DeploymentNamespace())
@@ -1646,7 +1646,7 @@ func TestResourceSelector(t *testing.T) {
 		Sync().
 		Then().
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(Pod(isDeploymentPodInCluster)).
 		// the pod is part of the application resource tree
 		Expect(ResourceTreeNode(isDeploymentPod)).
@@ -1665,7 +1665,7 @@ func TestResourceSelector(t *testing.T) {
 		Expect(NotResourceTreeNode(isDeploymentPod)).
 		// ... but is still running in the cluster
 		Expect(Pod(isDeploymentPodInCluster)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 func TestRevisionHistoryLimit(t *testing.T) {
@@ -2111,8 +2111,8 @@ func TestNamespaceAutoCreation(t *testing.T) {
 		Sync().
 		Then().
 		Expect(Success("")).
-		Expect(OperationPhaseIs(OperationSucceeded)).Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, health.HealthStatusHealthy)).
-		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, health.HealthStatusHealthy)).
+		Expect(OperationPhaseIs(OperationSucceeded)).Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, HealthStatusHealthy)).
+		Expect(ResourceHealthWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, HealthStatusHealthy)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, SyncStatusCodeSynced)).
 		Expect(ResourceSyncStatusWithNamespaceIs("Deployment", "guestbook-ui", updatedNamespace, SyncStatusCodeSynced)).
 		When().
@@ -2164,7 +2164,7 @@ func TestStaleOperationRevisionNotUsedNewSync(t *testing.T) {
 		// 2. The app must be synced and healthy on X.
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(app *Application) {
 			require.NotNil(t, app.Status.OperationState)
 			require.NotNil(t, app.Status.OperationState.SyncResult)
@@ -2349,7 +2349,7 @@ func TestAppLogs(t *testing.T) {
 		CreateApp().
 		Sync().
 		Then().
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		And(func(app *Application) {
 			out, err := fixture.RunCliWithRetry(appLogsRetryCount, "app", "logs", app.Name, "--kind", "Deployment", "--group", "", "--name", "guestbook-ui")
 			require.NoError(t, err)
@@ -2508,7 +2508,7 @@ func TestSwitchTrackingMethod(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Add resource with tracking annotation. This should put the
@@ -2523,7 +2523,7 @@ func TestSwitchTrackingMethod(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Delete resource to bring application back in sync
@@ -2532,14 +2532,14 @@ func TestSwitchTrackingMethod(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		SetTrackingMethod(string(TrackingMethodLabel)).
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Add a resource with a tracking annotation. This should not
@@ -2555,7 +2555,7 @@ func TestSwitchTrackingMethod(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Add a resource with the tracking label. The app should become
@@ -2570,7 +2570,7 @@ func TestSwitchTrackingMethod(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Delete resource to bring application back in sync
@@ -2579,7 +2579,7 @@ func TestSwitchTrackingMethod(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 // TestTrackingMethodAnnotationMovedResource verifies that a resource previously
@@ -2680,7 +2680,7 @@ func TestSwitchTrackingLabel(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Add extra resource that carries the default tracking label
@@ -2695,7 +2695,7 @@ func TestSwitchTrackingLabel(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Delete resource to bring application back in sync
@@ -2704,7 +2704,7 @@ func TestSwitchTrackingLabel(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		// Change tracking label
 		SetTrackingLabel("argocd.tracking").
@@ -2712,7 +2712,7 @@ func TestSwitchTrackingLabel(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Create resource with the new tracking label, the application
@@ -2727,7 +2727,7 @@ func TestSwitchTrackingLabel(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Delete resource to bring application back in sync
@@ -2736,7 +2736,7 @@ func TestSwitchTrackingLabel(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Add extra resource that carries the default tracking label
@@ -2752,7 +2752,7 @@ func TestSwitchTrackingLabel(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 func TestAnnotationTrackingExtraResources(t *testing.T) {
@@ -2768,7 +2768,7 @@ func TestAnnotationTrackingExtraResources(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Add a resource with an annotation that is not referencing the
@@ -2784,7 +2784,7 @@ func TestAnnotationTrackingExtraResources(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		Sync("--prune").
 		And(func() {
@@ -2807,7 +2807,7 @@ func TestAnnotationTrackingExtraResources(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		Sync("--prune").
 		And(func() {
@@ -2819,7 +2819,7 @@ func TestAnnotationTrackingExtraResources(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Add a cluster-scoped resource that is not referencing itself
@@ -2837,7 +2837,7 @@ func TestAnnotationTrackingExtraResources(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		And(func() {
 			// Add a cluster-scoped resource that is referencing itself
@@ -2855,7 +2855,7 @@ func TestAnnotationTrackingExtraResources(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().
 		Sync("--prune").
 		And(func() {
@@ -2867,7 +2867,7 @@ func TestAnnotationTrackingExtraResources(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(HealthStatusHealthy))
 }
 
 func TestCreateConfigMapsAndWaitForUpdate(t *testing.T) {
@@ -2907,10 +2907,10 @@ data:
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
-		Expect(ResourceHealthWithNamespaceIs("ConfigMap", "other-map", ctx.DeploymentNamespace(), health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
+		Expect(ResourceHealthWithNamespaceIs("ConfigMap", "other-map", ctx.DeploymentNamespace(), HealthStatusHealthy)).
 		Expect(ResourceSyncStatusWithNamespaceIs("ConfigMap", "other-map", ctx.DeploymentNamespace(), SyncStatusCodeSynced)).
-		Expect(ResourceHealthWithNamespaceIs("ConfigMap", "yet-another-map", ctx.DeploymentNamespace(), health.HealthStatusHealthy)).
+		Expect(ResourceHealthWithNamespaceIs("ConfigMap", "yet-another-map", ctx.DeploymentNamespace(), HealthStatusHealthy)).
 		Expect(ResourceSyncStatusWithNamespaceIs("ConfigMap", "yet-another-map", ctx.DeploymentNamespace(), SyncStatusCodeSynced))
 }
 
@@ -2966,8 +2966,8 @@ func TestDeletionConfirmation(t *testing.T) {
 				t.Context(), &corev1.ConfigMap{
 					Name: "test-configmap",
 					Annotations: map[string]string{
-						common.AnnotationKeyAppInstance: fmt.Sprintf("%s:/ConfigMap:%s/test-configmap", ctx.GetName(), ctx.DeploymentNamespace()),
-						AnnotationSyncOptions:           "Prune=confirm",
+						common.AnnotationKeyAppInstance:  fmt.Sprintf("%s:/ConfigMap:%s/test-configmap", ctx.GetName(), ctx.DeploymentNamespace()),
+						synccommon.AnnotationSyncOptions: "Prune=confirm",
 					},
 				}, metav1.CreateOptions{})
 			require.NoError(t, err)
@@ -2982,7 +2982,7 @@ func TestDeletionConfirmation(t *testing.T) {
 		When().ConfirmDeletion().
 		Then().Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().Delete(true).
 		Then().
 		ExpectConsistently(App(func(app *Application) bool {
@@ -3015,7 +3015,7 @@ func TestDeletionConfirmationAppLevel(t *testing.T) {
 		When().ConfirmDeletion().
 		Then().Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		When().Delete(true).
 		Then().
 		ExpectConsistently(App(func(app *Application) bool {
@@ -3061,7 +3061,7 @@ status:
 		Then().
 		And(func(app *Application) {
 			// Verify the health status is still Unknown
-			assert.Equal(t, health.HealthStatusUnknown, app.Status.Health.Status)
+			assert.Equal(t, HealthStatusUnknown, app.Status.Health.Status)
 
 			// Verify the lastTransitionTime has not been updated
 			assert.Equal(t, "2023-01-01T00:00:00Z", app.Status.Health.LastTransitionTime.UTC().Format(time.RFC3339))

@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application"
 
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -26,7 +26,7 @@ var kindToCRDPath = map[string]string{
 func getCustomResourceDefinitions(ctx context.Context) map[string]*apiextensionsv1.CustomResourceDefinition {
 	crdYamlBytes, err := exec.CommandContext(ctx,
 		"controller-gen",
-		"paths=./pkg/apis/application/...",
+		"paths=./api/pkg/apis/application/...",
 		"crd:crdVersions=v1",
 		"output:crd:stdout",
 	).Output()

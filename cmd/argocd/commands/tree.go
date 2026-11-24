@@ -6,10 +6,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"k8s.io/apimachinery/pkg/util/duration"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 )
 
 const (
@@ -18,7 +17,7 @@ const (
 	pipe            = `│ `
 )
 
-func extractHealthStatusAndReason(node v1alpha1.ResourceNode) (healthStatus health.HealthStatusCode, reason string) {
+func extractHealthStatusAndReason(node v1alpha1.ResourceNode) (healthStatus v1alpha1.HealthStatusCode, reason string) {
 	if node.Health != nil {
 		healthStatus = node.Health.Status
 		reason = node.Health.Message

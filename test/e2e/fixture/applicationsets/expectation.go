@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/diff"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture/applicationsets/utils"
 )
 
@@ -83,7 +83,7 @@ func ApplicationsExist(expectedApps []v1alpha1.Application) Expectation {
 }
 
 // ApplicationSetHasHealthStatus checks whether the ApplicationSet has the expected health status.
-func ApplicationSetHasHealthStatus(expectedHealthStatus health.HealthStatusCode) Expectation {
+func ApplicationSetHasHealthStatus(expectedHealthStatus v1alpha1.HealthStatusCode) Expectation {
 	return func(c *Consequences) (state, string) {
 		// retrieve the application set
 		foundApplicationSet := c.applicationSet(c.context.GetName())

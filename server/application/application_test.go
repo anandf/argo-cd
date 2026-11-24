@@ -18,8 +18,6 @@ import (
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/diff"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	synccommon "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube/kubetest"
 	"github.com/argoproj/pkg/v2/sync"
@@ -46,11 +44,12 @@ import (
 	k8scache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/yaml"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	apps "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+	appinformer "github.com/argoproj/argo-cd/api/v3/pkg/client/informers/externalversions"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	apps "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
-	appinformer "github.com/argoproj/argo-cd/v3/pkg/client/informers/externalversions"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient/mocks"
 	servercache "github.com/argoproj/argo-cd/v3/server/cache"
@@ -1143,7 +1142,7 @@ func setSyncRunningOperationState(t *testing.T, appServer *Server) {
 	app, err := appIf.Get(t.Context(), "test", metav1.GetOptions{})
 	require.NoError(t, err)
 	// This sets the status that would be set by the controller usually.
-	app.Status.OperationState = &v1alpha1.OperationState{Phase: synccommon.OperationRunning, Operation: v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}}}
+	app.Status.OperationState = &v1alpha1.OperationState{Phase: v1alpha1.OperationRunning, Operation: v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}}}
 	_, err = appIf.Update(t.Context(), app, metav1.UpdateOptions{})
 	require.NoError(t, err)
 }
@@ -2990,7 +2989,7 @@ func TestSyncAndTerminate(t *testing.T) {
 	// set status.operationState to pretend that an operation has started by controller
 	app.Status.OperationState = &v1alpha1.OperationState{
 		Operation: *app.Operation,
-		Phase:     synccommon.OperationRunning,
+		Phase:     v1alpha1.OperationRunning,
 		StartedAt: metav1.NewTime(time.Now()),
 	}
 	_, err = appServer.appclientset.ArgoprojV1alpha1().Applications(appServer.ns).Update(t.Context(), app, metav1.UpdateOptions{})
@@ -3003,7 +3002,7 @@ func TestSyncAndTerminate(t *testing.T) {
 	app, err = appServer.Get(ctx, &application.ApplicationQuery{Name: &app.Name})
 	require.NoError(t, err)
 	assert.NotNil(t, app)
-	assert.Equal(t, synccommon.OperationTerminating, app.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationTerminating, app.Status.OperationState.Phase)
 }
 
 func TestSyncHelm(t *testing.T) {
@@ -3729,7 +3728,7 @@ func TestGetApp_HealthStatusPropagation(t *testing.T) {
 				Kind:      "Deployment",
 				Name:      "guestbook",
 				Namespace: "default",
-				Health:    &v1alpha1.HealthStatus{Status: health.HealthStatusDegraded},
+				Health:    &v1alpha1.HealthStatus{Status: v1alpha1.HealthStatusDegraded},
 			}},
 		})
 		require.NoError(t, err)
@@ -3744,7 +3743,7 @@ func TestGetApp_HealthStatusPropagation(t *testing.T) {
 			Name: &testApp.Name,
 		})
 		require.NoError(t, err)
-		assert.Equal(t, health.HealthStatusDegraded, fetchedApp.Status.Resources[0].Health.Status)
+		assert.Equal(t, v1alpha1.HealthStatusDegraded, fetchedApp.Status.Resources[0].Health.Status)
 	})
 
 	t.Run("propagated health status on normal refresh", func(t *testing.T) {
@@ -3767,7 +3766,7 @@ func TestGetApp_HealthStatusPropagation(t *testing.T) {
 		case <-time.After(10 * time.Second):
 			assert.Fail(t, "Out of time ( 10 seconds )")
 		}
-		assert.Equal(t, health.HealthStatusDegraded, fetchedApp.Status.Resources[0].Health.Status)
+		assert.Equal(t, v1alpha1.HealthStatusDegraded, fetchedApp.Status.Resources[0].Health.Status)
 	})
 
 	t.Run("propagated health status on hard refresh", func(t *testing.T) {
@@ -3790,7 +3789,7 @@ func TestGetApp_HealthStatusPropagation(t *testing.T) {
 		case <-time.After(10 * time.Second):
 			assert.Fail(t, "Out of time ( 10 seconds )")
 		}
-		assert.Equal(t, health.HealthStatusDegraded, fetchedApp.Status.Resources[0].Health.Status)
+		assert.Equal(t, v1alpha1.HealthStatusDegraded, fetchedApp.Status.Resources[0].Health.Status)
 	})
 }
 
@@ -3818,7 +3817,7 @@ func TestInferResourcesStatusHealth(t *testing.T) {
 		Name:      "guestbook",
 		Namespace: "default",
 		Health: &v1alpha1.HealthStatus{
-			Status: health.HealthStatusDegraded,
+			Status: v1alpha1.HealthStatusDegraded,
 		},
 	}}})
 
@@ -3828,7 +3827,7 @@ func TestInferResourcesStatusHealth(t *testing.T) {
 
 	appServer.inferResourcesStatusHealth(testApp)
 
-	assert.Equal(t, health.HealthStatusDegraded, testApp.Status.Resources[0].Health.Status)
+	assert.Equal(t, v1alpha1.HealthStatusDegraded, testApp.Status.Resources[0].Health.Status)
 	assert.Nil(t, testApp.Status.Resources[1].Health)
 }
 
@@ -3857,7 +3856,7 @@ func TestInferResourcesStatusHealthWithAppInAnyNamespace(t *testing.T) {
 		Name:      "guestbook",
 		Namespace: "otherNamespace",
 		Health: &v1alpha1.HealthStatus{
-			Status: health.HealthStatusDegraded,
+			Status: v1alpha1.HealthStatusDegraded,
 		},
 	}}})
 
@@ -3867,7 +3866,7 @@ func TestInferResourcesStatusHealthWithAppInAnyNamespace(t *testing.T) {
 
 	appServer.inferResourcesStatusHealth(testApp)
 
-	assert.Equal(t, health.HealthStatusDegraded, testApp.Status.Resources[0].Health.Status)
+	assert.Equal(t, v1alpha1.HealthStatusDegraded, testApp.Status.Resources[0].Health.Status)
 	assert.Nil(t, testApp.Status.Resources[1].Health)
 }
 
@@ -5449,7 +5448,7 @@ func TestTerminateOperationWithConflicts(t *testing.T) {
 	}
 	testApp.Status.OperationState = &v1alpha1.OperationState{
 		Operation: *testApp.Operation,
-		Phase:     synccommon.OperationRunning,
+		Phase:     v1alpha1.OperationRunning,
 	}
 
 	appServer := newTestAppServer(t, testApp)
@@ -5616,7 +5615,7 @@ func TestTerminateOperationRetryOnConflict(t *testing.T) {
 	newRunningApp := func() *v1alpha1.Application {
 		a := newTestApp()
 		a.Operation = &v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}}
-		a.Status.OperationState = &v1alpha1.OperationState{Operation: *a.Operation, Phase: synccommon.OperationRunning}
+		a.Status.OperationState = &v1alpha1.OperationState{Operation: *a.Operation, Phase: v1alpha1.OperationRunning}
 		return a
 	}
 

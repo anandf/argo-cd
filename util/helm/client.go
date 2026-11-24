@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/argoproj/argo-cd/api/v3/util/helm/helmurl"
+
 	executil "github.com/argoproj/argo-cd/v3/util/exec"
 
 	"github.com/argoproj/pkg/v2/sync"
@@ -478,17 +480,8 @@ func (c *nativeHelmChart) getCachedChartPath(chart string, version string) (stri
 }
 
 // Ensures that given OCI registries URL does not have protocol
-func IsHelmOciRepo(repoURL string) bool {
-	if repoURL == "" || strings.Contains(repoURL, "://") {
-		return false
-	}
-	// A scheme-less registry reference such as "demo.goharbor.io:8080" or
-	// "192.168.100.150:1843" cannot be parsed as a URL on its own, so prepend a
-	// dummy scheme and require a host, the same way oras-go validates a registry
-	// (registry.Reference.ValidateRegistry).
-	parsed, err := url.ParseRequestURI("dummy://" + repoURL)
-	return err == nil && parsed.Host != ""
-}
+// IsHelmOciRepo is re-exported from util/helm/helmurl so existing callers keep working.
+var IsHelmOciRepo = helmurl.IsHelmOciRepo
 
 func getIndexURL(rawURL string) (string, error) {
 	indexFile := "index.yaml"

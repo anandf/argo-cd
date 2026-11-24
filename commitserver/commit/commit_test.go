@@ -12,11 +12,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/commitserver/apiclient"
 	"github.com/argoproj/argo-cd/v3/commitserver/commit/mocks"
 	"github.com/argoproj/argo-cd/v3/commitserver/metrics"
 	"github.com/argoproj/argo-cd/v3/common"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/git"
 	gitmocks "github.com/argoproj/argo-cd/v3/util/git/mocks"
 	"github.com/argoproj/argo-cd/v3/util/gpgsign"

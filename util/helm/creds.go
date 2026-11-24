@@ -16,8 +16,9 @@ import (
 	gocache "github.com/patrickmn/go-cache"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	argoutils "github.com/argoproj/argo-cd/v3/util"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	"github.com/argoproj/argo-cd/v3/util/workloadidentity"
 )
 

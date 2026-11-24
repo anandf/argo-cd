@@ -11,18 +11,19 @@ import (
 	"strings"
 	"time"
 
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned"
+
 	argoutil "github.com/argoproj/argo-cd/v3/util/argo"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	log "github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	argov1alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/applicationset/utils"
-	argov1alpha1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/argo/normalizers"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -514,7 +515,7 @@ func (m *Manager) UpdateApplicationSetApplicationStatus(ctx context.Context, log
 			// This does not mean we should always sync the app. The app may not be OutOfSync
 			// and may not require a sync if it does not have differences.
 			if appSyncStatus == argov1alpha1.SyncStatusCodeSynced {
-				if app.Status.Health.Status == health.HealthStatusHealthy {
+				if app.Status.Health.Status == argov1alpha1.HealthStatusHealthy {
 					newAppStatus.LastTransitionTime = &now
 					newAppStatus.Status = argov1alpha1.ProgressiveSyncHealthy
 					newAppStatus.Message = "Application resource has synced, updating status to Healthy"
@@ -557,7 +558,7 @@ func (m *Manager) UpdateApplicationSetApplicationStatus(ctx context.Context, log
 			if currentAppStatus.Status == argov1alpha1.ProgressiveSyncProgressing {
 				// If the status has reached progressing, we know a sync has been triggered. No matter the result of that operation,
 				// we want an the app to reach the Healthy state for the current revision.
-				if appHealthStatus == health.HealthStatusHealthy && appSyncStatus == argov1alpha1.SyncStatusCodeSynced {
+				if appHealthStatus == argov1alpha1.HealthStatusHealthy && appSyncStatus == argov1alpha1.SyncStatusCodeSynced {
 					newAppStatus.LastTransitionTime = &now
 					newAppStatus.Status = argov1alpha1.ProgressiveSyncHealthy
 					newAppStatus.Message = "Application resource became Healthy, updating status from Progressing to Healthy"

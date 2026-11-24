@@ -7,7 +7,8 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/argoproj/argo-cd/v3/util/env"
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/util/git"
 )
 

@@ -254,6 +254,7 @@ nav:
   - developer-guide/debugging-locally.md
   - developer-guide/debugging-remote-environment.md
   - developer-guide/api-docs.md
+  - developer-guide/api-module.md
   - developer-guide/test-e2e.md
   - developer-guide/dependencies.md
   - developer-guide/ci.md

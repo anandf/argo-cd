@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	apps "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
-	appinformer "github.com/argoproj/argo-cd/v3/pkg/client/informers/externalversions"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	apps "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+	appinformer "github.com/argoproj/argo-cd/api/v3/pkg/client/informers/externalversions"
 )
 
 // TestInformerFilterDoesNotCacheDisallowedNamespaces drives the full

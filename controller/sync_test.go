@@ -11,7 +11,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync"
-	synccommon "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,9 +21,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/controller/testdata"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/test"
 	"github.com/argoproj/argo-cd/v3/util/argo/diff"
@@ -295,7 +295,7 @@ func TestAppStateManager_SyncAppState(t *testing.T) {
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then
-		assert.Equal(t, synccommon.OperationFailed, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationFailed, opState.Phase)
 		assert.Contains(t, opState.Message, "ConfigMap/configmap1 is part of applications fake-argocd-ns/my-app and guestbook")
 	})
 }
@@ -359,13 +359,13 @@ func TestSyncWindowDeniesSync(t *testing.T) {
 					Source: &v1alpha1.ApplicationSource{},
 				},
 			},
-			Phase: synccommon.OperationRunning,
+			Phase: v1alpha1.OperationRunning,
 		}
 		// when
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then
-		assert.Equal(t, synccommon.OperationRunning, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationRunning, opState.Phase)
 		assert.Contains(t, opState.Message, opMessage)
 	})
 
@@ -380,14 +380,14 @@ func TestSyncWindowDeniesSync(t *testing.T) {
 					Source: &v1alpha1.ApplicationSource{},
 				},
 			},
-			Phase: synccommon.OperationTerminating,
+			Phase: v1alpha1.OperationTerminating,
 		}
 		// when
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then the termination is not blocked by the sync window and the operation is not left
 		// in the terminating phase forever
-		assert.Equal(t, synccommon.OperationFailed, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationFailed, opState.Phase)
 		assert.Equal(t, "Operation terminated", opState.Message)
 	})
 }
@@ -1872,13 +1872,13 @@ func TestSyncWithImpersonate(t *testing.T) {
 					Source: &v1alpha1.ApplicationSource{},
 				},
 			},
-			Phase: synccommon.OperationRunning,
+			Phase: v1alpha1.OperationRunning,
 		}
 		// when
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then, app sync should fail with expected error message in operation state
-		assert.Equal(t, synccommon.OperationError, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationError, opState.Phase)
 		assert.Contains(t, opState.Message, opMessage)
 	})
 
@@ -1893,13 +1893,13 @@ func TestSyncWithImpersonate(t *testing.T) {
 					Source: &v1alpha1.ApplicationSource{},
 				},
 			},
-			Phase: synccommon.OperationRunning,
+			Phase: v1alpha1.OperationRunning,
 		}
 		// when
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then app sync should fail with expected error message in operation state
-		assert.Equal(t, synccommon.OperationError, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationError, opState.Phase)
 		assert.Contains(t, opState.Message, opMessage)
 	})
 
@@ -1914,13 +1914,13 @@ func TestSyncWithImpersonate(t *testing.T) {
 					Source: &v1alpha1.ApplicationSource{},
 				},
 			},
-			Phase: synccommon.OperationRunning,
+			Phase: v1alpha1.OperationRunning,
 		}
 		// when
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then app sync should not fail
-		assert.Equal(t, synccommon.OperationSucceeded, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationSucceeded, opState.Phase)
 		assert.Contains(t, opState.Message, opMessage)
 	})
 
@@ -1935,13 +1935,13 @@ func TestSyncWithImpersonate(t *testing.T) {
 					Source: &v1alpha1.ApplicationSource{},
 				},
 			},
-			Phase: synccommon.OperationRunning,
+			Phase: v1alpha1.OperationRunning,
 		}
 		// when
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then application sync should pass using the control plane service account
-		assert.Equal(t, synccommon.OperationSucceeded, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationSucceeded, opState.Phase)
 		assert.Contains(t, opState.Message, opMessage)
 	})
 
@@ -1987,13 +1987,13 @@ func TestSyncWithImpersonate(t *testing.T) {
 					Source: &v1alpha1.ApplicationSource{},
 				},
 			},
-			Phase: synccommon.OperationRunning,
+			Phase: v1alpha1.OperationRunning,
 		}
 		// when
 		ctrl.appStateManager.SyncAppState(t.Context(), app, project, opState)
 
 		// then app sync should succeed with fallback to controller SA
-		assert.Equal(t, synccommon.OperationSucceeded, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationSucceeded, opState.Phase)
 		assert.Contains(t, opState.Message, opMessage)
 	})
 
@@ -2043,13 +2043,13 @@ func TestSyncWithImpersonate(t *testing.T) {
 					Source: &v1alpha1.ApplicationSource{},
 				},
 			},
-			Phase: synccommon.OperationRunning,
+			Phase: v1alpha1.OperationRunning,
 		}
 		// when
 		ctrl.appStateManager.SyncAppState(t.Context(), app, project, opState)
 
 		// then app sync should succeed using impersonation
-		assert.Equal(t, synccommon.OperationSucceeded, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationSucceeded, opState.Phase)
 		assert.Contains(t, opState.Message, opMessage)
 	})
 
@@ -2064,7 +2064,7 @@ func TestSyncWithImpersonate(t *testing.T) {
 					Source: &v1alpha1.ApplicationSource{},
 				},
 			},
-			Phase: synccommon.OperationRunning,
+			Phase: v1alpha1.OperationRunning,
 		}
 
 		f.application.Spec.Destination.Server = ""
@@ -2074,7 +2074,7 @@ func TestSyncWithImpersonate(t *testing.T) {
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then app sync should not fail
-		assert.Equal(t, synccommon.OperationSucceeded, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationSucceeded, opState.Phase)
 		assert.Contains(t, opState.Message, opMessage)
 	})
 }
@@ -2258,7 +2258,7 @@ func TestClientSideApplyMigration(t *testing.T) {
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then
-		assert.Equal(t, synccommon.OperationSucceeded, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationSucceeded, opState.Phase)
 		assert.Contains(t, opState.Message, "successfully synced")
 	})
 
@@ -2276,7 +2276,7 @@ func TestClientSideApplyMigration(t *testing.T) {
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then
-		assert.Equal(t, synccommon.OperationSucceeded, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationSucceeded, opState.Phase)
 		assert.Contains(t, opState.Message, "successfully synced")
 	})
 
@@ -2294,7 +2294,7 @@ func TestClientSideApplyMigration(t *testing.T) {
 		f.controller.appStateManager.SyncAppState(t.Context(), f.application, f.project, opState)
 
 		// then
-		assert.Equal(t, synccommon.OperationSucceeded, opState.Phase)
+		assert.Equal(t, v1alpha1.OperationSucceeded, opState.Phase)
 		assert.Contains(t, opState.Message, "successfully synced")
 	})
 }

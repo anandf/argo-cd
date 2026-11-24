@@ -4,10 +4,8 @@ import (
 	"testing"
 	"time"
 
-	appfake "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
+	appfake "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,10 +16,11 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/applicationset/generators"
 	appsetmetrics "github.com/argoproj/argo-cd/v3/applicationset/metrics"
 	appsetprogressiveSync "github.com/argoproj/argo-cd/v3/applicationset/progressivesync"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/db"
 	"github.com/argoproj/argo-cd/v3/util/settings"
 )
@@ -55,7 +54,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 		}
 	}
 
-	newApp := func(name string, health health.HealthStatusCode, sync v1alpha1.SyncStatusCode, revision string, opState *v1alpha1.OperationState) v1alpha1.Application {
+	newApp := func(name string, health v1alpha1.HealthStatusCode, sync v1alpha1.SyncStatusCode, revision string, opState *v1alpha1.OperationState) v1alpha1.Application {
 		return v1alpha1.Application{
 			Name: name,
 			Status: v1alpha1.ApplicationStatus{
@@ -72,13 +71,13 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 		}
 	}
 
-	newAppWithSpec := func(name string, health health.HealthStatusCode, sync v1alpha1.SyncStatusCode, revision string, opState *v1alpha1.OperationState, spec v1alpha1.ApplicationSpec) v1alpha1.Application {
+	newAppWithSpec := func(name string, health v1alpha1.HealthStatusCode, sync v1alpha1.SyncStatusCode, revision string, opState *v1alpha1.OperationState, spec v1alpha1.ApplicationSpec) v1alpha1.Application {
 		app := newApp(name, health, sync, revision, opState)
 		app.Spec = spec
 		return app
 	}
 
-	newOperationState := func(phase common.OperationPhase) *v1alpha1.OperationState {
+	newOperationState := func(phase v1alpha1.OperationPhase) *v1alpha1.OperationState {
 		finishedAt := &metav1.Time{Time: time.Now().Add(-1 * time.Second)}
 		if !phase.Completed() {
 			finishedAt = nil
@@ -108,7 +107,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 			name:   "handles a nil list of statuses with a healthy application",
 			appSet: newDefaultAppSet(2, nil),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "next", newOperationState(common.OperationSucceeded)),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "next", newOperationState(v1alpha1.OperationSucceeded)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -127,7 +126,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 			name:   "moves a new application to healthy when app is synced and healthy",
 			appSet: newDefaultAppSet(2, []v1alpha1.ApplicationSetApplicationStatus{}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "current", newOperationState(common.OperationSucceeded)),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "current", newOperationState(v1alpha1.OperationSucceeded)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -155,7 +154,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "current", newOperationState(common.OperationSucceeded)),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "current", newOperationState(v1alpha1.OperationSucceeded)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -174,7 +173,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 			name:   "moves a new application to progressing when app is synced but not healthy",
 			appSet: newDefaultAppSet(2, []v1alpha1.ApplicationSetApplicationStatus{}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusDegraded, v1alpha1.SyncStatusCodeSynced, "current", newOperationState(common.OperationSucceeded)),
+				newApp("app1", v1alpha1.HealthStatusDegraded, v1alpha1.SyncStatusCodeSynced, "current", newOperationState(v1alpha1.OperationSucceeded)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -202,7 +201,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "next", newOperationState(common.OperationSucceeded)),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "next", newOperationState(v1alpha1.OperationSucceeded)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -238,8 +237,8 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", nil),
-				newApp("app2-multisource", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", nil),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", nil),
+				newApp("app2-multisource", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", nil),
 			},
 			appStepMap: map[string]int{
 				"app1":             0,
@@ -275,7 +274,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", newOperationState(common.OperationSucceeded)),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", newOperationState(v1alpha1.OperationSucceeded)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -304,7 +303,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", newOperationState(common.OperationRunning)),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", newOperationState(v1alpha1.OperationRunning)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -332,7 +331,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", newOperationState(common.OperationSucceeded)),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", newOperationState(v1alpha1.OperationSucceeded)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -360,7 +359,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", newOperationState(common.OperationFailed)),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", newOperationState(v1alpha1.OperationFailed)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -388,7 +387,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", newOperationState(common.OperationError)),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "next", newOperationState(v1alpha1.OperationError)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -431,7 +430,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 							},
 						},
 						Health: v1alpha1.AppHealthStatus{
-							Status: health.HealthStatusUnknown,
+							Status: v1alpha1.HealthStatusUnknown,
 						},
 						OperationState: nil,
 						Sync: v1alpha1.SyncStatus{
@@ -467,8 +466,8 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusProgressing, v1alpha1.SyncStatusCodeSynced, "next", &v1alpha1.OperationState{
-					Phase:      common.OperationSucceeded,
+				newApp("app1", v1alpha1.HealthStatusProgressing, v1alpha1.SyncStatusCodeSynced, "next", &v1alpha1.OperationState{
+					Phase:      v1alpha1.OperationSucceeded,
 					StartedAt:  nowMinus5,
 					FinishedAt: &metav1.Time{Time: nowMinus5.Add(5 * time.Second)},
 				}),
@@ -504,10 +503,10 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 					Status: v1alpha1.ApplicationStatus{
 						ReconciledAt: &nowMinus5, // This means data is stale and we cannot trust the information in the status.
 						Health: v1alpha1.AppHealthStatus{
-							Status: health.HealthStatusHealthy,
+							Status: v1alpha1.HealthStatusHealthy,
 						},
 						OperationState: &v1alpha1.OperationState{
-							Phase:      common.OperationSucceeded,
+							Phase:      v1alpha1.OperationSucceeded,
 							StartedAt:  metav1.Time{Time: time.Now().Add(-1 * time.Minute)},
 							FinishedAt: &metav1.Time{Time: time.Now()},
 						},
@@ -544,7 +543,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "next", newOperationState(common.OperationSucceeded)),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "next", newOperationState(v1alpha1.OperationSucceeded)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -572,7 +571,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusDegraded, v1alpha1.SyncStatusCodeSynced, "next", newOperationState(common.OperationSucceeded)),
+				newApp("app1", v1alpha1.HealthStatusDegraded, v1alpha1.SyncStatusCodeSynced, "next", newOperationState(v1alpha1.OperationSucceeded)),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -606,7 +605,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "current", nil),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "current", nil),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -640,8 +639,8 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "current", nil),
-				newApp("app2", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "current", nil),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "current", nil),
+				newApp("app2", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "current", nil),
 			},
 			appStepMap: map[string]int{
 				"app1": 0,
@@ -676,7 +675,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newApp("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "current", nil),
+				newApp("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "current", nil),
 			},
 			appStepMap: map[string]int{
 				"app1": 1, // 1 is actually steps 2
@@ -703,7 +702,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newAppWithSpec("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "abc123", nil, // Changed to OutOfSync
+				newAppWithSpec("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "abc123", nil, // Changed to OutOfSync
 					v1alpha1.ApplicationSpec{
 						Source: &v1alpha1.ApplicationSource{
 							RepoURL:        "https://example.com/repo.git",
@@ -721,7 +720,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 					}),
 			},
 			desiredApps: []v1alpha1.Application{
-				newAppWithSpec("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "abc123", nil, // Changed to OutOfSync
+				newAppWithSpec("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "abc123", nil, // Changed to OutOfSync
 					v1alpha1.ApplicationSpec{
 						Source: &v1alpha1.ApplicationSource{
 							RepoURL:        "https://example.com/repo.git",
@@ -763,7 +762,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newAppWithSpec("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "abc123", nil,
+				newAppWithSpec("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeSynced, "abc123", nil,
 					v1alpha1.ApplicationSpec{
 						Source: &v1alpha1.ApplicationSource{
 							RepoURL:        "https://example.com/repo.git",
@@ -826,7 +825,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 				},
 			}),
 			apps: []v1alpha1.Application{
-				newAppWithSpec("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "def456", nil, // NEW revision, but OutOfSync
+				newAppWithSpec("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "def456", nil, // NEW revision, but OutOfSync
 					v1alpha1.ApplicationSpec{
 						Source: &v1alpha1.ApplicationSource{
 							RepoURL:        "https://example.com/repo.git",
@@ -844,7 +843,7 @@ func TestUpdateApplicationSetApplicationStatus(t *testing.T) {
 					}),
 			},
 			desiredApps: []v1alpha1.Application{
-				newAppWithSpec("app1", health.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "def456", nil,
+				newAppWithSpec("app1", v1alpha1.HealthStatusHealthy, v1alpha1.SyncStatusCodeOutOfSync, "def456", nil,
 					v1alpha1.ApplicationSpec{
 						Source: &v1alpha1.ApplicationSource{
 							RepoURL:        "https://example.com/repo.git",

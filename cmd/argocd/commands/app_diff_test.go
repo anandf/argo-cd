@@ -21,10 +21,11 @@ import (
 
 	"k8s.io/utils/ptr"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	applicationpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/application"
 	applicationmocks "github.com/argoproj/argo-cd/v3/pkg/apiclient/application/mocks"
 	settingspkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/settings"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	repoapiclient "github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/util/argo/normalizers"
 )

@@ -8,7 +8,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned"
 
 	"github.com/argoproj/argo-cd/v3/applicationset/progressivesync"
 
@@ -21,6 +21,8 @@ import (
 	"github.com/argoproj/argo-cd/v3/util/profile"
 	"github.com/argoproj/argo-cd/v3/util/tls"
 
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	"github.com/argoproj/argo-cd/v3/applicationset/controllers"
 	"github.com/argoproj/argo-cd/v3/applicationset/generators"
 	"github.com/argoproj/argo-cd/v3/applicationset/utils"
@@ -28,7 +30,6 @@ import (
 	cmdutil "github.com/argoproj/argo-cd/v3/cmd/util"
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/pkg/ratelimiter"
-	"github.com/argoproj/argo-cd/v3/util/env"
 	"github.com/argoproj/argo-cd/v3/util/github_app"
 
 	log "github.com/sirupsen/logrus"
@@ -43,9 +44,10 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	appv1alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	appsetmetrics "github.com/argoproj/argo-cd/v3/applicationset/metrics"
 	"github.com/argoproj/argo-cd/v3/applicationset/services"
-	appv1alpha1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/cli"
 	"github.com/argoproj/argo-cd/v3/util/db"
 	"github.com/argoproj/argo-cd/v3/util/errors"

@@ -9,7 +9,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/argoproj/argo-cd/v3/util/env"
+	"github.com/argoproj/argo-cd/api/v3/util/env"
+
 	utilio "github.com/argoproj/argo-cd/v3/util/io"
 )
 

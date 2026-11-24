@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube/kubetest"
 	"github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
@@ -33,7 +32,6 @@ import (
 	"github.com/argoproj/argo-cd/v3/controller/sharding"
 
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/cache/mocks"
-	synccommon "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -52,10 +50,11 @@ import (
 
 	dbmocks "github.com/argoproj/argo-cd/v3/util/db/mocks"
 
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	appclientset "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+
 	mockcommitclient "github.com/argoproj/argo-cd/v3/commitserver/apiclient/mocks"
 	mockstatecache "github.com/argoproj/argo-cd/v3/controller/cache/mocks"
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	appclientset "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	mockrepoclient "github.com/argoproj/argo-cd/v3/reposerver/apiclient/mocks"
 	"github.com/argoproj/argo-cd/v3/test"
@@ -735,7 +734,7 @@ func newFakeApp() *v1alpha1.Application {
 	return createFakeApp(fakeApp)
 }
 
-func newFakeAppWithHealthAndTime(status health.HealthStatusCode, timestamp metav1.Time) *v1alpha1.Application {
+func newFakeAppWithHealthAndTime(status v1alpha1.HealthStatusCode, timestamp metav1.Time) *v1alpha1.Application {
 	return createFakeAppWithHealthAndTime(fakeApp, status, timestamp)
 }
 
@@ -743,7 +742,7 @@ func newFakeMultiSourceApp() *v1alpha1.Application {
 	return createFakeApp(fakeMultiSourceApp)
 }
 
-func createFakeAppWithHealthAndTime(testApp string, status health.HealthStatusCode, timestamp metav1.Time) *v1alpha1.Application {
+func createFakeAppWithHealthAndTime(testApp string, status v1alpha1.HealthStatusCode, timestamp metav1.Time) *v1alpha1.Application {
 	app := createFakeApp(testApp)
 	app.Status.Health = v1alpha1.AppHealthStatus{
 		Status:             status,
@@ -1020,7 +1019,7 @@ func TestSkipAutoSync(t *testing.T) {
 			Operation: v1alpha1.Operation{
 				Sync: &v1alpha1.SyncOperation{},
 			},
-			Phase: synccommon.OperationFailed,
+			Phase: v1alpha1.OperationFailed,
 			SyncResult: &v1alpha1.SyncOperationResult{
 				Revision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				Source:   *app.Spec.Source.DeepCopy(),
@@ -1044,7 +1043,7 @@ func TestSkipAutoSync(t *testing.T) {
 			Operation: v1alpha1.Operation{
 				Sync: &v1alpha1.SyncOperation{},
 			},
-			Phase: synccommon.OperationError,
+			Phase: v1alpha1.OperationError,
 			SyncResult: &v1alpha1.SyncOperationResult{
 				Revision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				Source:   *app.Spec.Source.DeepCopy(),
@@ -1101,7 +1100,7 @@ func TestAutoSyncIndicateError(t *testing.T) {
 				Source: app.Spec.Source.DeepCopy(),
 			},
 		},
-		Phase: synccommon.OperationFailed,
+		Phase: v1alpha1.OperationFailed,
 		SyncResult: &v1alpha1.SyncOperationResult{
 			Revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			Source:   *app.Spec.Source.DeepCopy(),
@@ -1141,7 +1140,7 @@ func TestAutoSyncParameterOverrides(t *testing.T) {
 					},
 				},
 			},
-			Phase: synccommon.OperationFailed,
+			Phase: v1alpha1.OperationFailed,
 			SyncResult: &v1alpha1.SyncOperationResult{
 				Revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
@@ -2100,7 +2099,7 @@ func TestGetResourceTree_HasOrphanedResources(t *testing.T) {
 	managedDeploy := v1alpha1.ResourceNode{
 		Group: "apps", Kind: "Deployment", Namespace: "default", Name: "nginx-deployment", Version: "v1",
 		Health: &v1alpha1.HealthStatus{
-			Status: health.HealthStatusMissing,
+			Status: v1alpha1.HealthStatusMissing,
 		},
 	}
 	orphanedDeploy1 := v1alpha1.ResourceNode{
@@ -2141,7 +2140,7 @@ func TestSetOperationStateOnDeletedApp(t *testing.T) {
 		patched = true
 		return true, &v1alpha1.Application{}, apierrors.NewNotFound(schema.GroupResource{}, "my-app")
 	})
-	ctrl.setOperationState(t.Context(), newFakeApp(), &v1alpha1.OperationState{Phase: synccommon.OperationSucceeded})
+	ctrl.setOperationState(t.Context(), newFakeApp(), &v1alpha1.OperationState{Phase: v1alpha1.OperationSucceeded})
 	assert.True(t, patched)
 }
 
@@ -2161,7 +2160,7 @@ func TestSetOperationStateLogRetries(t *testing.T) {
 		}
 		return true, &v1alpha1.Application{}, nil
 	})
-	ctrl.setOperationState(t.Context(), newFakeApp(), &v1alpha1.OperationState{Phase: synccommon.OperationSucceeded})
+	ctrl.setOperationState(t.Context(), newFakeApp(), &v1alpha1.OperationState{Phase: v1alpha1.OperationSucceeded})
 	assert.True(t, patched)
 	require.GreaterOrEqual(t, len(hook.Entries), 1)
 	entry := hook.Entries[0]
@@ -2862,7 +2861,7 @@ func TestShouldPersistReconciledAt(t *testing.T) {
 	now := time.Now().UTC()
 
 	finished := func(at time.Time) *v1alpha1.OperationState {
-		return &v1alpha1.OperationState{Phase: synccommon.OperationSucceeded, FinishedAt: ptrTime(at)}
+		return &v1alpha1.OperationState{Phase: v1alpha1.OperationSucceeded, FinishedAt: ptrTime(at)}
 	}
 
 	testCases := map[string]struct {
@@ -2906,7 +2905,7 @@ func TestShouldPersistReconciledAt(t *testing.T) {
 		"a running operation does not force a write": {
 			heartbeat: 10 * time.Minute,
 			persisted: ptrTime(now.Add(-1 * time.Minute)),
-			opState:   &v1alpha1.OperationState{Phase: synccommon.OperationRunning},
+			opState:   &v1alpha1.OperationState{Phase: v1alpha1.OperationRunning},
 			expected:  false,
 		},
 	}
@@ -2937,7 +2936,7 @@ func TestReconciledAtHeartbeatSuppressesNoOpWrite(t *testing.T) {
 		ReconciledAt:        &reconciledAt,
 		ControllerNamespace: test.FakeArgoCDNamespace,
 		Health: v1alpha1.AppHealthStatus{
-			Status:             health.HealthStatusHealthy,
+			Status:             v1alpha1.HealthStatusHealthy,
 			LastTransitionTime: &healthAt,
 		},
 		Sync: v1alpha1.SyncStatus{
@@ -3006,11 +3005,11 @@ func TestReconciledAtPersistedAfterOperation(t *testing.T) {
 		ReconciledAt:        &reconciledAt,
 		ControllerNamespace: test.FakeArgoCDNamespace,
 		OperationState: &v1alpha1.OperationState{
-			Phase:      synccommon.OperationSucceeded,
+			Phase:      v1alpha1.OperationSucceeded,
 			FinishedAt: &finishedAt,
 		},
 		Health: v1alpha1.AppHealthStatus{
-			Status:             health.HealthStatusHealthy,
+			Status:             v1alpha1.HealthStatusHealthy,
 			LastTransitionTime: &healthAt,
 		},
 		Sync: v1alpha1.SyncStatus{
@@ -3069,7 +3068,7 @@ func TestReconciledAtPersistedOnRequestedRefresh(t *testing.T) {
 		ReconciledAt:        &reconciledAt,
 		ControllerNamespace: test.FakeArgoCDNamespace,
 		Health: v1alpha1.AppHealthStatus{
-			Status:             health.HealthStatusHealthy,
+			Status:             v1alpha1.HealthStatusHealthy,
 			LastTransitionTime: &healthAt,
 		},
 		Sync: v1alpha1.SyncStatus{
@@ -3127,7 +3126,7 @@ func TestFailedStatusWriteForgetsReconciled(t *testing.T) {
 				ReconciledAt:        &reconciledAt,
 				ControllerNamespace: test.FakeArgoCDNamespace,
 				Health: v1alpha1.AppHealthStatus{
-					Status:             health.HealthStatusHealthy,
+					Status:             v1alpha1.HealthStatusHealthy,
 					LastTransitionTime: &healthAt,
 				},
 				Sync: v1alpha1.SyncStatus{
@@ -3140,7 +3139,7 @@ func TestFailedStatusWriteForgetsReconciled(t *testing.T) {
 				},
 			}
 			// Force a non-empty status patch.
-			app.Status.Health.Status = health.HealthStatusProgressing
+			app.Status.Health.Status = v1alpha1.HealthStatusProgressing
 			ctrl := newFakeController(t.Context(), &fakeData{
 				apps: []runtime.Object{app, &defaultProj},
 				manifestResponse: &apiclient.ManifestResponse{
@@ -3188,7 +3187,7 @@ func TestReconciledAtStampedWhenStatusPatchedAnyway(t *testing.T) {
 		ReconciledAt:        &reconciledAt,
 		ControllerNamespace: test.FakeArgoCDNamespace,
 		Health: v1alpha1.AppHealthStatus{
-			Status:             health.HealthStatusHealthy,
+			Status:             v1alpha1.HealthStatusHealthy,
 			LastTransitionTime: &healthAt,
 		},
 		Sync: v1alpha1.SyncStatus{
@@ -3201,7 +3200,7 @@ func TestReconciledAtStampedWhenStatusPatchedAnyway(t *testing.T) {
 		},
 	}
 	// Force a non-empty status patch.
-	app.Status.Health.Status = health.HealthStatusProgressing
+	app.Status.Health.Status = v1alpha1.HealthStatusProgressing
 	ctrl := newFakeController(t.Context(), &fakeData{
 		apps: []runtime.Object{app, &defaultProj},
 		manifestResponse: &apiclient.ManifestResponse{
@@ -3255,7 +3254,7 @@ func TestFailedHydrationStatusWriteKeepsReconciled(t *testing.T) {
 		ReconciledAt:        &reconciledAt,
 		ControllerNamespace: test.FakeArgoCDNamespace,
 		Health: v1alpha1.AppHealthStatus{
-			Status:             health.HealthStatusHealthy,
+			Status:             v1alpha1.HealthStatusHealthy,
 			LastTransitionTime: &healthAt,
 		},
 		Sync: v1alpha1.SyncStatus{
@@ -3319,7 +3318,7 @@ func TestDiffCacheUsesEffectiveReconciledAt(t *testing.T) {
 				ReconciledAt:        &reconciledAt,
 				ControllerNamespace: test.FakeArgoCDNamespace,
 				Health: v1alpha1.AppHealthStatus{
-					Status:             health.HealthStatusHealthy,
+					Status:             v1alpha1.HealthStatusHealthy,
 					LastTransitionTime: &healthAt,
 				},
 				Sync: v1alpha1.SyncStatus{
@@ -3493,12 +3492,12 @@ func TestUpdateHealthStatus(t *testing.T) {
 		persistResourceHealth bool
 		initialMessage        string
 		configMapData         map[string]string
-		expectedStatus        health.HealthStatusCode
+		expectedStatus        v1alpha1.HealthStatusCode
 		expectedMessage       string
 	}{
 		{
 			name: "Degraded to Missing",
-			app:  newFakeAppWithHealthAndTime(health.HealthStatusDegraded, testTimestamp),
+			app:  newFakeAppWithHealthAndTime(v1alpha1.HealthStatusDegraded, testTimestamp),
 			configMapData: map[string]string{
 				"resource.customizations": `
 apps/Deployment:
@@ -3508,12 +3507,12 @@ apps/Deployment:
     hs.message = ""
     return hs`,
 			},
-			expectedStatus:  health.HealthStatusMissing,
+			expectedStatus:  v1alpha1.HealthStatusMissing,
 			expectedMessage: deploymentCause,
 		},
 		{
 			name: "Missing to Progressing",
-			app:  newFakeAppWithHealthAndTime(health.HealthStatusMissing, testTimestamp),
+			app:  newFakeAppWithHealthAndTime(v1alpha1.HealthStatusMissing, testTimestamp),
 			configMapData: map[string]string{
 				"resource.customizations": `
 apps/Deployment:
@@ -3523,12 +3522,12 @@ apps/Deployment:
     hs.message = ""
     return hs`,
 			},
-			expectedStatus:  health.HealthStatusProgressing,
+			expectedStatus:  v1alpha1.HealthStatusProgressing,
 			expectedMessage: deploymentCause,
 		},
 		{
 			name: "Progressing to Healthy",
-			app:  newFakeAppWithHealthAndTime(health.HealthStatusProgressing, testTimestamp),
+			app:  newFakeAppWithHealthAndTime(v1alpha1.HealthStatusProgressing, testTimestamp),
 			configMapData: map[string]string{
 				"resource.customizations": `
 apps/Deployment:
@@ -3538,13 +3537,13 @@ apps/Deployment:
     hs.message = ""
     return hs`,
 			},
-			expectedStatus: health.HealthStatusHealthy,
+			expectedStatus: v1alpha1.HealthStatusHealthy,
 			// A Healthy app has no contributing causes.
 			expectedMessage: "",
 		},
 		{
 			name: "Healthy  to Degraded",
-			app:  newFakeAppWithHealthAndTime(health.HealthStatusHealthy, testTimestamp),
+			app:  newFakeAppWithHealthAndTime(v1alpha1.HealthStatusHealthy, testTimestamp),
 			configMapData: map[string]string{
 				"resource.customizations": `
 apps/Deployment:
@@ -3554,14 +3553,14 @@ apps/Deployment:
     hs.message = ""
     return hs`,
 			},
-			expectedStatus:  health.HealthStatusDegraded,
+			expectedStatus:  v1alpha1.HealthStatusDegraded,
 			expectedMessage: deploymentCause,
 		},
 		{
 			// No health transition with non-inline resource health: the status stays Degraded,
 			// and both the last transition time and the previous health message are preserved.
 			name:           "Degraded stays Degraded (non-inline preserves message)",
-			app:            newFakeAppWithHealthAndTime(health.HealthStatusDegraded, testTimestamp),
+			app:            newFakeAppWithHealthAndTime(v1alpha1.HealthStatusDegraded, testTimestamp),
 			initialMessage: "Caused by apps/Deployment:default/previous",
 			configMapData: map[string]string{
 				"resource.customizations": `
@@ -3572,14 +3571,14 @@ apps/Deployment:
     hs.message = ""
     return hs`,
 			},
-			expectedStatus:  health.HealthStatusDegraded,
+			expectedStatus:  v1alpha1.HealthStatusDegraded,
 			expectedMessage: "Caused by apps/Deployment:default/previous",
 		},
 		{
 			// No health transition with inline resource health: the status stays Degraded, but
 			// the freshly computed message replaces the previous one.
 			name:                  "Degraded stays Degraded (inline updates message)",
-			app:                   newFakeAppWithHealthAndTime(health.HealthStatusDegraded, testTimestamp),
+			app:                   newFakeAppWithHealthAndTime(v1alpha1.HealthStatusDegraded, testTimestamp),
 			persistResourceHealth: true,
 			initialMessage:        "Caused by apps/Deployment:default/previous",
 			configMapData: map[string]string{
@@ -3591,7 +3590,7 @@ apps/Deployment:
     hs.message = ""
     return hs`,
 			},
-			expectedStatus:  health.HealthStatusDegraded,
+			expectedStatus:  v1alpha1.HealthStatusDegraded,
 			expectedMessage: deploymentCause,
 		},
 	}
@@ -3637,7 +3636,7 @@ apps/Deployment:
 }
 
 func TestUpdateHealthStatusProgression(t *testing.T) {
-	app := newFakeAppWithHealthAndTime(health.HealthStatusDegraded, testTimestamp)
+	app := newFakeAppWithHealthAndTime(v1alpha1.HealthStatusDegraded, testTimestamp)
 	deployment := kube.MustToUnstructured(&appsv1.Deployment{
 		APIVersion: "apps/v1",
 		Kind:       "Deployment",
@@ -3695,27 +3694,27 @@ apps/Deployment:
 	testCases := []struct {
 		name           string
 		initialStatus  string
-		expectedStatus health.HealthStatusCode
+		expectedStatus v1alpha1.HealthStatusCode
 	}{
 		{
 			name:           "Degraded to Missing",
 			initialStatus:  "Degraded",
-			expectedStatus: health.HealthStatusMissing,
+			expectedStatus: v1alpha1.HealthStatusMissing,
 		},
 		{
 			name:           "Missing to Progressing",
 			initialStatus:  "Missing",
-			expectedStatus: health.HealthStatusProgressing,
+			expectedStatus: v1alpha1.HealthStatusProgressing,
 		},
 		{
 			name:           "Progressing to Healthy",
 			initialStatus:  "Progressing",
-			expectedStatus: health.HealthStatusHealthy,
+			expectedStatus: v1alpha1.HealthStatusHealthy,
 		},
 		{
 			name:           "Healthy to Degraded",
 			initialStatus:  "Healthy",
-			expectedStatus: health.HealthStatusDegraded,
+			expectedStatus: v1alpha1.HealthStatusDegraded,
 		},
 	}
 
@@ -3908,7 +3907,7 @@ func TestProcessRequestedAppOperation_FailedNoRetries(t *testing.T) {
 	patchedApp, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, patchedApp.Status.OperationState)
-	assert.Equal(t, synccommon.OperationError, patchedApp.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationError, patchedApp.Status.OperationState.Phase)
 	assert.Equal(t, "Failed to load application project: error getting app project \"default\": appproject.argoproj.io \"default\" not found", patchedApp.Status.OperationState.Message)
 }
 
@@ -3928,7 +3927,7 @@ func TestProcessRequestedAppOperation_InvalidDestination(t *testing.T) {
 	patchedApp, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, patchedApp.Status.OperationState)
-	assert.Equal(t, synccommon.OperationError, patchedApp.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationError, patchedApp.Status.OperationState.Phase)
 	assert.Contains(t, patchedApp.Status.OperationState.Message, "application destination can't have both name and server defined: another-cluster https://localhost:6443")
 }
 
@@ -3946,7 +3945,7 @@ func TestProcessRequestedAppOperation_FailedHasRetries(t *testing.T) {
 	patchedApp, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, patchedApp.Status.OperationState)
-	assert.Equal(t, synccommon.OperationRunning, patchedApp.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationRunning, patchedApp.Status.OperationState.Phase)
 	assert.Contains(t, patchedApp.Status.OperationState.Message, "Failed to load application project: error getting app project \"invalid-project\": appproject.argoproj.io \"invalid-project\" not found. Retrying attempt #1")
 	assert.EqualValues(t, 1, patchedApp.Status.OperationState.RetryCount)
 }
@@ -3992,14 +3991,14 @@ func TestProcessRequestedAppOperation_RunningPreviouslyFailed(t *testing.T) {
 		Retry: v1alpha1.RetryStrategy{Limit: 1},
 	}
 	app.Status.OperationState.Operation = *app.Operation
-	app.Status.OperationState.Phase = synccommon.OperationRunning
+	app.Status.OperationState.Phase = v1alpha1.OperationRunning
 	app.Status.OperationState.RetryCount = 1
 	app.Status.OperationState.FinishedAt = &metav1.Time{Time: failedAttemptFinisedAt}
 	app.Status.OperationState.SyncResult.Resources = []*v1alpha1.ResourceResult{{
 		Name:   "guestbook",
 		Kind:   "Deployment",
 		Group:  "apps",
-		Status: synccommon.ResultCodeSyncFailed,
+		Status: v1alpha1.ResultCodeSyncFailed,
 	}}
 
 	data := &fakeData{
@@ -4019,7 +4018,7 @@ func TestProcessRequestedAppOperation_RunningPreviouslyFailed(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, patchedApp.Status.OperationState)
 	require.NotNil(t, patchedApp.Status.OperationState.FinishedAt)
-	assert.Equal(t, synccommon.OperationSucceeded, patchedApp.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationSucceeded, patchedApp.Status.OperationState.Phase)
 	assert.Equal(t, "successfully synced (no more tasks)", patchedApp.Status.OperationState.Message)
 	assert.Truef(t, patchedApp.Status.OperationState.FinishedAt.After(failedAttemptFinisedAt), "finishedAt was expected to be updated. The retry was not performed.")
 }
@@ -4039,7 +4038,7 @@ func TestProcessRequestedAppOperation_RunningPreviouslyFailedBackoff(t *testing.
 		},
 	}
 	app.Status.OperationState.Operation = *app.Operation
-	app.Status.OperationState.Phase = synccommon.OperationRunning
+	app.Status.OperationState.Phase = v1alpha1.OperationRunning
 	app.Status.OperationState.Message = "pending retry"
 	app.Status.OperationState.RetryCount = 1
 	app.Status.OperationState.FinishedAt = &metav1.Time{Time: failedAttemptFinisedAt}
@@ -4047,7 +4046,7 @@ func TestProcessRequestedAppOperation_RunningPreviouslyFailedBackoff(t *testing.
 		Name:   "guestbook",
 		Kind:   "Deployment",
 		Group:  "apps",
-		Status: synccommon.ResultCodeSyncFailed,
+		Status: v1alpha1.ResultCodeSyncFailed,
 	}}
 
 	data := &fakeData{
@@ -4076,7 +4075,7 @@ func TestProcessRequestedAppOperation_HasRetriesTerminated(t *testing.T) {
 		Retry: v1alpha1.RetryStrategy{Limit: 10},
 	}
 	app.Status.OperationState.Operation = *app.Operation
-	app.Status.OperationState.Phase = synccommon.OperationTerminating
+	app.Status.OperationState.Phase = v1alpha1.OperationTerminating
 	// No termination reason recorded on the operation state; the final message should not
 	// gain a spurious "triggered by" suffix from unrelated leftover state.
 	app.Status.OperationState.Message = ""
@@ -4097,7 +4096,7 @@ func TestProcessRequestedAppOperation_HasRetriesTerminated(t *testing.T) {
 	patchedApp, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, patchedApp.Status.OperationState)
-	assert.Equal(t, synccommon.OperationFailed, patchedApp.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationFailed, patchedApp.Status.OperationState.Phase)
 	assert.Equal(t, "Operation terminated", patchedApp.Status.OperationState.Message)
 }
 
@@ -4108,7 +4107,7 @@ func TestProcessRequestedAppOperation_HasRetriesTerminatedWithUnrelatedMessage(t
 		Retry: v1alpha1.RetryStrategy{Limit: 10},
 	}
 	app.Status.OperationState.Operation = *app.Operation
-	app.Status.OperationState.Phase = synccommon.OperationTerminating
+	app.Status.OperationState.Phase = v1alpha1.OperationTerminating
 	// The Terminate UI/API action only sets Phase to Terminating; it does not update
 	// Message. This leftover message (e.g. from a prior sync attempt) must not be
 	// mislabeled as the termination reason.
@@ -4130,7 +4129,7 @@ func TestProcessRequestedAppOperation_HasRetriesTerminatedWithUnrelatedMessage(t
 	patchedApp, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, patchedApp.Status.OperationState)
-	assert.Equal(t, synccommon.OperationFailed, patchedApp.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationFailed, patchedApp.Status.OperationState.Phase)
 	assert.Equal(t, "Operation terminated", patchedApp.Status.OperationState.Message)
 }
 
@@ -4141,7 +4140,7 @@ func TestProcessRequestedAppOperation_HasRetriesTerminatedWithSizeLimitCause(t *
 		Retry: v1alpha1.RetryStrategy{Limit: 10},
 	}
 	app.Status.OperationState.Operation = *app.Operation
-	app.Status.OperationState.Phase = synccommon.OperationTerminating
+	app.Status.OperationState.Phase = v1alpha1.OperationTerminating
 	// Only the size-limit fallback message (set by setOperationState when the operation
 	// state could not be persisted) should be surfaced as the termination cause.
 	sizeLimitMessage := operationStateSizeLimitMessagePrefix + " and could not be persisted. error: request entity too large"
@@ -4163,7 +4162,7 @@ func TestProcessRequestedAppOperation_HasRetriesTerminatedWithSizeLimitCause(t *
 	patchedApp, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, patchedApp.Status.OperationState)
-	assert.Equal(t, synccommon.OperationFailed, patchedApp.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationFailed, patchedApp.Status.OperationState.Phase)
 	assert.Equal(t, "Operation terminated, triggered by "+sizeLimitMessage, patchedApp.Status.OperationState.Message)
 }
 
@@ -4185,7 +4184,7 @@ func TestProcessRequestedAppOperation_Successful(t *testing.T) {
 	patchedApp, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, patchedApp.Status.OperationState)
-	assert.Equal(t, synccommon.OperationSucceeded, patchedApp.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationSucceeded, patchedApp.Status.OperationState.Phase)
 	assert.Equal(t, "successfully synced (no more tasks)", patchedApp.Status.OperationState.Message)
 	ok, level := ctrl.isRefreshRequested(ctrl.toAppKey(app.Name))
 	assert.True(t, ok)
@@ -4213,7 +4212,7 @@ func TestProcessRequestedAppAutomatedOperation_Successful(t *testing.T) {
 	patchedApp, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, patchedApp.Status.OperationState)
-	assert.Equal(t, synccommon.OperationSucceeded, patchedApp.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationSucceeded, patchedApp.Status.OperationState.Phase)
 	assert.Equal(t, "successfully synced (no more tasks)", patchedApp.Status.OperationState.Message)
 	ok, level := ctrl.isRefreshRequested(ctrl.toAppKey(app.Name))
 	assert.True(t, ok)
@@ -4227,7 +4226,7 @@ func TestSetOperationState_EmptySyncRevisionClearsPreviousRevision(t *testing.T)
 	ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app.DeepCopy()}}, nil)
 
 	ctrl.setOperationState(t.Context(), app, &v1alpha1.OperationState{
-		Phase:     synccommon.OperationRunning,
+		Phase:     v1alpha1.OperationRunning,
 		StartedAt: metav1.Now(),
 		Operation: v1alpha1.Operation{
 			Sync:  &v1alpha1.SyncOperation{},
@@ -4249,37 +4248,37 @@ func TestProcessRequestedAppOperation_SyncTimeout(t *testing.T) {
 		startedSince    time.Duration
 		syncTimeout     time.Duration
 		retryAttempt    int
-		currentPhase    synccommon.OperationPhase
-		expectedPhase   synccommon.OperationPhase
+		currentPhase    v1alpha1.OperationPhase
+		expectedPhase   v1alpha1.OperationPhase
 		expectedMessage string
 	}{{
 		name:            "Continue when running operation has not exceeded timeout",
 		syncTimeout:     time.Minute,
 		startedSince:    30 * time.Second,
-		currentPhase:    synccommon.OperationRunning,
-		expectedPhase:   synccommon.OperationSucceeded,
+		currentPhase:    v1alpha1.OperationRunning,
+		expectedPhase:   v1alpha1.OperationSucceeded,
 		expectedMessage: "successfully synced (no more tasks)",
 	}, {
 		name:            "Continue when terminating operation has exceeded timeout",
 		syncTimeout:     time.Minute,
 		startedSince:    2 * time.Minute,
-		currentPhase:    synccommon.OperationTerminating,
-		expectedPhase:   synccommon.OperationFailed,
+		currentPhase:    v1alpha1.OperationTerminating,
+		expectedPhase:   v1alpha1.OperationFailed,
 		expectedMessage: "Operation terminated",
 	}, {
 		name:            "Terminate when running operation exceeded timeout",
 		syncTimeout:     time.Minute,
 		startedSince:    2 * time.Minute,
-		currentPhase:    synccommon.OperationRunning,
-		expectedPhase:   synccommon.OperationFailed,
+		currentPhase:    v1alpha1.OperationRunning,
+		expectedPhase:   v1alpha1.OperationFailed,
 		expectedMessage: "Operation terminated, triggered by controller sync timeout",
 	}, {
 		name:            "Terminate when retried operation exceeded timeout",
 		syncTimeout:     time.Minute,
 		startedSince:    15 * time.Minute,
-		currentPhase:    synccommon.OperationRunning,
+		currentPhase:    v1alpha1.OperationRunning,
 		retryAttempt:    1,
-		expectedPhase:   synccommon.OperationFailed,
+		expectedPhase:   v1alpha1.OperationFailed,
 		expectedMessage: "Operation terminated, triggered by controller sync timeout (retried 1 times).",
 	}}
 	for i := range testCases {
@@ -4358,7 +4357,7 @@ func TestProcessRequestedAppOperation_RequeuesOperation(t *testing.T) {
 		ctrl.syncTimeout = 10 * time.Second
 		app.Status.OperationState = &v1alpha1.OperationState{
 			Operation: *app.Operation,
-			Phase:     synccommon.OperationRunning,
+			Phase:     v1alpha1.OperationRunning,
 			StartedAt: metav1.Now(),
 		}
 		rq := &recordingOperationQueue{TypedRateLimitingInterface: ctrl.appOperationQueue}
@@ -4397,7 +4396,7 @@ func TestProcessRequestedAppOperation_RequeuesOperation(t *testing.T) {
 			},
 		}, nil)
 		app.Status.OperationState.Operation = *app.Operation
-		app.Status.OperationState.Phase = synccommon.OperationRunning
+		app.Status.OperationState.Phase = v1alpha1.OperationRunning
 		app.Status.OperationState.RetryCount = 1
 		app.Status.OperationState.FinishedAt = &metav1.Time{Time: time.Now().Add(-time.Second)}
 		rq := &recordingOperationQueue{TypedRateLimitingInterface: ctrl.appOperationQueue}
@@ -4455,7 +4454,7 @@ func TestShouldProcessOperation(t *testing.T) {
 
 func TestApplicationController_PersistAppStatus_FallbackOnSizeLimit(t *testing.T) {
 	app := newFakeApp()
-	app.Status.Health.Status = health.HealthStatusHealthy
+	app.Status.Health.Status = v1alpha1.HealthStatusHealthy
 	app.Status.Sync.Status = v1alpha1.SyncStatusCodeSynced
 	app.SetAnnotations(map[string]string{"foo": "bar", v1alpha1.AnnotationKeyRefresh: string(v1alpha1.RefreshTypeNormal)})
 
@@ -4509,7 +4508,7 @@ func TestApplicationController_PersistAppStatus_FallbackOnSizeLimit(t *testing.T
 
 func TestApplicationController_PersistAppStatus_NonSizeLimitErrorNoFallback(t *testing.T) {
 	app := newFakeApp()
-	app.Status.Health.Status = health.HealthStatusHealthy
+	app.Status.Health.Status = v1alpha1.HealthStatusHealthy
 	app.Status.Sync.Status = v1alpha1.SyncStatusCodeSynced
 
 	ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
@@ -4546,7 +4545,7 @@ func TestApplicationController_PersistAppStatus_NonSizeLimitErrorNoFallback(t *t
 
 func TestApplicationController_PersistAppStatus_FallbackMessageContainsUserGuidance(t *testing.T) {
 	app := newFakeApp()
-	app.Status.Health.Status = health.HealthStatusHealthy
+	app.Status.Health.Status = v1alpha1.HealthStatusHealthy
 	app.Status.Sync.Status = v1alpha1.SyncStatusCodeSynced
 
 	ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
@@ -4603,7 +4602,7 @@ func TestApplicationController_PersistAppStatus_FallbackMessageContainsUserGuida
 
 func TestApplicationController_PersistAppStatus_FallbackPatchAlsoFails(t *testing.T) {
 	app := newFakeApp()
-	app.Status.Health.Status = health.HealthStatusHealthy
+	app.Status.Health.Status = v1alpha1.HealthStatusHealthy
 	app.Status.Sync.Status = v1alpha1.SyncStatusCodeSynced
 
 	ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
@@ -4963,7 +4962,7 @@ func TestAlreadyAttemptSync(t *testing.T) {
 	t.Run("no sync result for running sync", func(t *testing.T) {
 		app := app.DeepCopy()
 		app.Status.OperationState.SyncResult = nil
-		app.Status.OperationState.Phase = synccommon.OperationRunning
+		app.Status.OperationState.Phase = v1alpha1.OperationRunning
 		attempted, _, _ := alreadyAttemptedSync(app, []string{defaultRevision}, true)
 		assert.False(t, attempted)
 	})
@@ -4971,7 +4970,7 @@ func TestAlreadyAttemptSync(t *testing.T) {
 	t.Run("no sync result for completed sync", func(t *testing.T) {
 		app := app.DeepCopy()
 		app.Status.OperationState.SyncResult = nil
-		app.Status.OperationState.Phase = synccommon.OperationError
+		app.Status.OperationState.Phase = v1alpha1.OperationError
 		attempted, _, _ := alreadyAttemptedSync(app, []string{defaultRevision}, true)
 		assert.True(t, attempted)
 	})
@@ -5222,7 +5221,7 @@ func TestPersistReconciliationStatus_AnnotationManagement(t *testing.T) {
 			"other-annotation":                     "other-value",
 		}
 		app.Status.Sync.Status = v1alpha1.SyncStatusCodeSynced
-		app.Status.Health.Status = health.HealthStatusHealthy
+		app.Status.Health.Status = v1alpha1.HealthStatusHealthy
 
 		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
 
@@ -5259,7 +5258,7 @@ func TestPersistReconciliationStatus_AnnotationManagement(t *testing.T) {
 	t.Run("persistReconciliationStatus does not patch when there are unrelated annotations", func(t *testing.T) {
 		app := newFakeApp()
 		app.Status.Sync.Status = v1alpha1.SyncStatusCodeSynced
-		app.Status.Health.Status = health.HealthStatusHealthy
+		app.Status.Health.Status = v1alpha1.HealthStatusHealthy
 		app.Annotations = map[string]string{
 			"other-annotation": "other-value",
 		}
@@ -5283,7 +5282,7 @@ func TestPersistReconciliationStatus_AnnotationManagement(t *testing.T) {
 	t.Run("persistReconciliationStatus does not patch when there are no annotations", func(t *testing.T) {
 		app := newFakeApp()
 		app.Status.Sync.Status = v1alpha1.SyncStatusCodeSynced
-		app.Status.Health.Status = health.HealthStatusHealthy
+		app.Status.Health.Status = v1alpha1.HealthStatusHealthy
 
 		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
 		appCs := ctrl.applicationClientset.(*appclientset.Clientset)
@@ -5758,7 +5757,7 @@ func TestProcessRequestedAppOperation_TooLargeRequestTerminatesWithinBoundedReco
 	app.Spec.Project = "default"
 	app.Operation = &v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}}
 	app.Status.OperationState.Operation = *app.Operation
-	app.Status.OperationState.Phase = synccommon.OperationRunning
+	app.Status.OperationState.Phase = v1alpha1.OperationRunning
 	app.Status.OperationState.Message = "running"
 	app.Status.OperationState.FinishedAt = nil
 
@@ -5767,7 +5766,7 @@ func TestProcessRequestedAppOperation_TooLargeRequestTerminatesWithinBoundedReco
 	// Bound well below what an infinite retry loop would need, so this test fails loudly
 	// (instead of hanging) if the fallback logic regresses into looping forever.
 	const maxReconciles = 3
-	var finalPhase synccommon.OperationPhase
+	var finalPhase v1alpha1.OperationPhase
 	for range maxReconciles {
 		ctrl.processRequestedAppOperation(app)
 
@@ -5781,7 +5780,7 @@ func TestProcessRequestedAppOperation_TooLargeRequestTerminatesWithinBoundedReco
 	}
 
 	require.True(t, finalPhase.Completed(), "operation must reach a terminal phase within %d reconciles, not loop forever", maxReconciles)
-	assert.Equal(t, synccommon.OperationError, finalPhase)
+	assert.Equal(t, v1alpha1.OperationError, finalPhase)
 	assert.Nil(t, app.Operation, "operation must be cleared once finalized, so the controller stops re-queuing it")
 	assert.Contains(t, app.Status.OperationState.Message, "exceeds the Kubernetes resource size limit")
 	assert.Equal(t, 2, *realPatchAttempts, "each reconcile must attempt the real patch exactly once before falling back, not retry it in a loop")
@@ -5792,7 +5791,7 @@ func TestSetOperationStateTooLargeRequest(t *testing.T) {
 		Operation: v1alpha1.Operation{
 			Sync: &v1alpha1.SyncOperation{Revision: "HEAD"},
 		},
-		Phase:   synccommon.OperationRunning,
+		Phase:   v1alpha1.OperationRunning,
 		Message: "running",
 	}
 
@@ -5811,25 +5810,25 @@ func TestSetOperationStateTooLargeRequest(t *testing.T) {
 			},
 			// First time we see the size error, we ask the operation to terminate instead of
 			// erroring out immediately, so the operation is left in place.
-			wantPhase:     string(synccommon.OperationTerminating),
+			wantPhase:     string(v1alpha1.OperationTerminating),
 			wantOperation: true,
 		},
 		{
 			name:          "operationState is not nil and not already terminating",
 			setupApp:      newFakeApp,
-			wantPhase:     string(synccommon.OperationTerminating),
+			wantPhase:     string(v1alpha1.OperationTerminating),
 			wantOperation: true,
 		},
 		{
 			name: "operationState is already terminating",
 			setupApp: func() *v1alpha1.Application {
 				app := newFakeApp()
-				app.Status.OperationState.Phase = synccommon.OperationTerminating
+				app.Status.OperationState.Phase = v1alpha1.OperationTerminating
 				return app
 			},
 			// Once termination has already been requested and the patch still fails, we give up
 			// and finalize as an error, clearing the operation so the controller stops retrying.
-			wantPhase:     string(synccommon.OperationError),
+			wantPhase:     string(v1alpha1.OperationError),
 			wantOperation: false,
 		},
 	}
@@ -5890,12 +5889,12 @@ func TestSetOperationStateTooLargeRequest_PreservesHookResultsForTermination(t *
 		Operation: v1alpha1.Operation{
 			Sync: &v1alpha1.SyncOperation{Revision: "HEAD"},
 		},
-		Phase:   synccommon.OperationRunning,
+		Phase:   v1alpha1.OperationRunning,
 		Message: "running",
 		SyncResult: &v1alpha1.SyncOperationResult{
 			Resources: v1alpha1.ResourceResults{
-				{Kind: "ConfigMap", Name: "bulky-non-hook", Status: synccommon.ResultCodeSynced},
-				{Kind: "Job", Name: "running-presync-hook", HookType: synccommon.HookTypePreSync, HookPhase: synccommon.OperationRunning},
+				{Kind: "ConfigMap", Name: "bulky-non-hook", Status: v1alpha1.ResultCodeSynced},
+				{Kind: "Job", Name: "running-presync-hook", HookType: v1alpha1.HookTypePreSync, HookPhase: v1alpha1.OperationRunning},
 			},
 		},
 	}
@@ -5911,7 +5910,7 @@ func TestSetOperationStateTooLargeRequest_PreservesHookResultsForTermination(t *
 	ops := decodeJSONPatchOps(t, *capturedPatch)
 	opState, ok := ops["/status/operationState"].(map[string]any)
 	require.True(t, ok, "fallback must replace the whole /status/operationState")
-	assert.Equal(t, string(synccommon.OperationTerminating), opState["phase"])
+	assert.Equal(t, string(v1alpha1.OperationTerminating), opState["phase"])
 
 	stored, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
 	require.NoError(t, err)
@@ -5920,7 +5919,7 @@ func TestSetOperationStateTooLargeRequest_PreservesHookResultsForTermination(t *
 	results := stored.Status.OperationState.SyncResult.Resources
 	require.Len(t, results, 1, "only hook results should survive the size-limit fallback")
 	assert.Equal(t, "running-presync-hook", results[0].Name)
-	assert.Equal(t, synccommon.HookTypePreSync, results[0].HookType, "hook results needed for termination must be retained")
+	assert.Equal(t, v1alpha1.HookTypePreSync, results[0].HookType, "hook results needed for termination must be retained")
 }
 
 func TestSetOperationStateTooLargeRequest_PreservesFinishedAtOnCompletion(t *testing.T) {
@@ -5929,13 +5928,13 @@ func TestSetOperationStateTooLargeRequest_PreservesFinishedAtOnCompletion(t *tes
 		Operation: v1alpha1.Operation{
 			Sync: &v1alpha1.SyncOperation{Revision: "HEAD"},
 		},
-		Phase:      synccommon.OperationSucceeded,
+		Phase:      v1alpha1.OperationSucceeded,
 		Message:    "succeeded",
 		FinishedAt: &finishedAt,
 	}
 
 	app := newFakeApp()
-	app.Status.OperationState.Phase = synccommon.OperationRunning
+	app.Status.OperationState.Phase = v1alpha1.OperationRunning
 	app.Status.OperationState.FinishedAt = nil
 
 	ctrl, patchCallCount, capturedPatch := newFakeControllerWithTooLargeFirstPatch(t, app)
@@ -5962,7 +5961,7 @@ func TestSetOperationStateTooLargeRequest_EmitsCompletionTelemetryOnFinalFallbac
 		Operation: v1alpha1.Operation{
 			Sync: &v1alpha1.SyncOperation{Revision: "HEAD"},
 		},
-		Phase:   synccommon.OperationTerminating,
+		Phase:   v1alpha1.OperationTerminating,
 		Message: "terminating",
 	}
 
@@ -5970,7 +5969,7 @@ func TestSetOperationStateTooLargeRequest_EmitsCompletionTelemetryOnFinalFallbac
 	// Use a name unique to this test so its sync metrics don't collide with values
 	// recorded by other tests that share the same package-level Prometheus vectors.
 	app.Name = "too-large-request-completion-telemetry-test"
-	app.Status.OperationState.Phase = synccommon.OperationTerminating
+	app.Status.OperationState.Phase = v1alpha1.OperationTerminating
 
 	ctrl, patchCallCount, _ := newFakeControllerWithTooLargeFirstPatch(t, app)
 
@@ -6021,7 +6020,7 @@ func TestRecordOperationCompletion_EventMessageRevision(t *testing.T) {
 			app:  newFakeApp(),
 			state: &v1alpha1.OperationState{
 				Operation:  v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}},
-				Phase:      synccommon.OperationSucceeded,
+				Phase:      v1alpha1.OperationSucceeded,
 				SyncResult: &v1alpha1.SyncOperationResult{Revision: "abc123"},
 			},
 			wantMsg:    "Sync operation to abc123 succeeded",
@@ -6032,7 +6031,7 @@ func TestRecordOperationCompletion_EventMessageRevision(t *testing.T) {
 			app:  newFakeMultiSourceApp(),
 			state: &v1alpha1.OperationState{
 				Operation:  v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}},
-				Phase:      synccommon.OperationSucceeded,
+				Phase:      v1alpha1.OperationSucceeded,
 				SyncResult: &v1alpha1.SyncOperationResult{Revisions: []string{"abc123", "def456"}},
 			},
 			wantMsg:    "Sync operation to abc123,def456 succeeded",
@@ -6045,7 +6044,7 @@ func TestRecordOperationCompletion_EventMessageRevision(t *testing.T) {
 				Operation: v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{
 					Resources: []v1alpha1.SyncOperationResource{{Kind: "ConfigMap", Name: "cm"}},
 				}},
-				Phase:      synccommon.OperationFailed,
+				Phase:      v1alpha1.OperationFailed,
 				Message:    "boom",
 				SyncResult: &v1alpha1.SyncOperationResult{Revisions: []string{"abc123", "def456"}},
 			},
@@ -6082,12 +6081,12 @@ func TestSetOperationStateTooLargeRequest_FallbackAlsoTooLarge(t *testing.T) {
 		Operation: v1alpha1.Operation{
 			Sync: &v1alpha1.SyncOperation{Revision: "HEAD", Manifests: []string{"huge-manifest"}},
 		},
-		Phase:   synccommon.OperationRunning,
+		Phase:   v1alpha1.OperationRunning,
 		Message: "running",
 	}
 
 	app := newFakeApp()
-	app.Status.OperationState.Phase = synccommon.OperationTerminating
+	app.Status.OperationState.Phase = v1alpha1.OperationTerminating
 
 	var callCount int
 	var capturedPatch []byte
@@ -6109,7 +6108,7 @@ func TestSetOperationStateTooLargeRequest_FallbackAlsoTooLarge(t *testing.T) {
 	opState, ok := ops["/status/operationState"].(map[string]any)
 	require.True(t, ok, "minimal fallback must replace the whole /status/operationState")
 	phase, _, _ := unstructured.NestedString(opState, "phase")
-	assert.Equal(t, string(synccommon.OperationError), phase, "minimal fallback must finalize the operation, not loop back to Terminating")
+	assert.Equal(t, string(v1alpha1.OperationError), phase, "minimal fallback must finalize the operation, not loop back to Terminating")
 
 	_, clearsOperation := ops["/operation"]
 	assert.True(t, clearsOperation, "minimal fallback must clear the top-level requested operation")
@@ -6123,7 +6122,7 @@ func TestSetOperationStateTooLargeRequest_FallbackAlsoTooLarge(t *testing.T) {
 	stored, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, stored.Status.OperationState)
-	assert.Equal(t, synccommon.OperationError, stored.Status.OperationState.Phase)
+	assert.Equal(t, v1alpha1.OperationError, stored.Status.OperationState.Phase)
 	assert.Nil(t, stored.Operation, "minimal fallback must clear the top-level requested operation on the server")
 	assert.Nil(t, stored.Status.OperationState.SyncResult, "minimal fallback must not leave a stale syncResult on the server")
 	assert.Nil(t, stored.Status.OperationState.Operation.Sync, "minimal fallback must drop the bulky attempted operation on the server")
@@ -6141,7 +6140,7 @@ func TestSetOperationStateTooLargeRequest_MinimalFallbackClearsSyncResult(t *tes
 		Operation: v1alpha1.Operation{
 			Sync: &v1alpha1.SyncOperation{Revision: "HEAD", Manifests: []string{"huge-manifest"}},
 		},
-		Phase:   synccommon.OperationRunning,
+		Phase:   v1alpha1.OperationRunning,
 		Message: "running",
 	}
 

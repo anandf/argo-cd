@@ -3,11 +3,10 @@ package e2e
 import (
 	"testing"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
-	. "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/stretchr/testify/assert"
 
-	. "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	. "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/test/e2e/fixture"
 	. "github.com/argoproj/argo-cd/v3/test/e2e/fixture/app"
 )
@@ -41,7 +40,7 @@ func TestSyncToUnsignedCommit(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: Failed verifying revision")).
 		Expect(Condition(ApplicationConditionComparisonError, " unsigned (key_id=)"))
 }
@@ -60,7 +59,7 @@ func TestSyncToSignedCommitWithoutKnownKey(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: Failed verifying revision")).
 		Expect(Condition(ApplicationConditionComparisonError, "signed with key not in keyring (key_id="+fixture.GpgGoodKeyID+")"))
 }
@@ -81,7 +80,7 @@ func TestSyncToSignedCommitWithKnownKey(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(NoConditions())
 }
 
@@ -101,7 +100,7 @@ func TestSyncToSignedCommitWithUnallowedKey(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: Failed verifying revision")).
 		Expect(Condition(ApplicationConditionComparisonError, "signed with unallowed key (key_id="+fixture.GpgGoodKeyID+")"))
 }
@@ -123,7 +122,7 @@ func TestSyncToSignedBranchWithKnownKey(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(NoConditions())
 }
 
@@ -143,7 +142,7 @@ func TestSyncToSignedBranchWithUnknownKey(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: Failed verifying revision")).
 		Expect(Condition(ApplicationConditionComparisonError, "signed with key not in keyring (key_id="+fixture.GpgGoodKeyID+")"))
 }
@@ -165,7 +164,7 @@ func TestSyncToUnsignedBranch(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: Failed verifying revision")).
 		Expect(Condition(ApplicationConditionComparisonError, "unsigned (key_id=)"))
 }
@@ -187,7 +186,7 @@ func TestSyncToSignedTagWithKnownKey(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(NoConditions())
 }
 
@@ -207,7 +206,7 @@ func TestSyncToSignedTagWithUnknownKey(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: Failed verifying revision signed-tag by ")).
 		Expect(Condition(ApplicationConditionComparisonError, "signed with key not in keyring (key_id="+fixture.GpgGoodKeyID+")"))
 }
@@ -231,7 +230,7 @@ func TestSyncToUnsignedAnnotatedTag(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: Failed verifying revision unsigned-tag by ")).
 		Expect(Condition(ApplicationConditionComparisonError, "unsigned (key_id=)"))
 }
@@ -255,7 +254,7 @@ func TestSyncToUnsignedSimpleTag(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(NoConditions())
 }
 
@@ -277,7 +276,7 @@ func TestSyncToSignedAnnotatedTagWithUnallowedKey(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: Failed verifying revision v1.0")).
 		Expect(Condition(ApplicationConditionComparisonError, "signed with unallowed key (key_id="+fixture.GpgGoodKeyID+")"))
 }
@@ -300,7 +299,7 @@ func TestSyncToTagBasedConstraint(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(NoConditions())
 }
 
@@ -318,7 +317,7 @@ func TestNamespacedSyncToUnsignedCommit(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: Failed verifying revision ")).
 		Expect(Condition(ApplicationConditionComparisonError, "unsigned (key_id=)"))
 }
@@ -339,7 +338,7 @@ func TestNamespacedSyncToSignedCommitWithUnknownKey(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationError)).
 		Expect(SyncStatusIs(SyncStatusCodeOutOfSync)).
-		Expect(HealthIs(health.HealthStatusMissing)).
+		Expect(HealthIs(HealthStatusMissing)).
 		Expect(Condition(ApplicationConditionComparisonError, "GIT/GPG: Failed verifying revision ")).
 		Expect(Condition(ApplicationConditionComparisonError, "signed with key not in keyring (key_id="+fixture.GpgGoodKeyID+")"))
 }
@@ -362,7 +361,7 @@ func TestNamespacedSyncToSignedCommit(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(NoConditions())
 }
 
@@ -415,7 +414,7 @@ func TestOCISourceIgnoredWithSourceIntegrity(t *testing.T) {
 		Sync().
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
 		// Verify local manifests are permitted - source integrity criteria for git should not apply for oci
 		Given().
@@ -442,7 +441,7 @@ func TestArtifactCacheInvalidatedOnSourceIntegrityChange(t *testing.T) {
 		Then().
 		Expect(OperationPhaseIs(OperationSucceeded)).
 		Expect(SyncStatusIs(SyncStatusCodeSynced)).
-		Expect(HealthIs(health.HealthStatusHealthy)).
+		Expect(HealthIs(HealthStatusHealthy)).
 		Expect(NoConditions()).
 		Given().
 		// Should start failing when the project does not bless they key anymore

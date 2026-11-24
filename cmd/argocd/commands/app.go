@@ -17,7 +17,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/common"
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	"github.com/mattn/go-isatty"
@@ -40,10 +39,11 @@ import (
 
 	resourceutil "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/resource"
 
+	argoappv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	clusterpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/cluster"
 	projectpkg "github.com/argoproj/argo-cd/v3/pkg/apiclient/project"
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/settings"
-	argoappv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/argo/normalizers"
 	"github.com/argoproj/argo-cd/v3/util/cli"
@@ -2314,13 +2314,13 @@ func checkResourceStatus(watch watchOpts, healthStatus string, syncStatus string
 	if healthBeingChecked && hasHealthCheck {
 		healthCheckPassed = false
 		if watch.health {
-			healthCheckPassed = healthCheckPassed || healthStatus == string(health.HealthStatusHealthy)
+			healthCheckPassed = healthCheckPassed || healthStatus == string(argoappv1.HealthStatusHealthy)
 		}
 		if watch.suspended {
-			healthCheckPassed = healthCheckPassed || healthStatus == string(health.HealthStatusSuspended)
+			healthCheckPassed = healthCheckPassed || healthStatus == string(argoappv1.HealthStatusSuspended)
 		}
 		if watch.degraded {
-			healthCheckPassed = healthCheckPassed || healthStatus == string(health.HealthStatusDegraded)
+			healthCheckPassed = healthCheckPassed || healthStatus == string(argoappv1.HealthStatusDegraded)
 		}
 	}
 
@@ -2609,7 +2609,7 @@ func waitOnApplicationStatus(ctx context.Context, acdClient argocdclient.Client,
 			var doPrint bool
 			stateKey := newState.Key()
 			if prevState, found := prevStates[stateKey]; found {
-				if watch.health && prevState.Health != string(health.HealthStatusUnknown) && prevState.Health != string(health.HealthStatusDegraded) && newState.Health == string(health.HealthStatusDegraded) {
+				if watch.health && prevState.Health != string(argoappv1.HealthStatusUnknown) && prevState.Health != string(argoappv1.HealthStatusDegraded) && newState.Health == string(argoappv1.HealthStatusDegraded) {
 					_ = printFinalStatus(app)
 					return nil, finalOperationState, fmt.Errorf("application '%s' health state has transitioned from %s to %s", appName, prevState.Health, newState.Health)
 				}

@@ -11,7 +11,7 @@ import (
 
 	"github.com/argoproj/argo-cd/v3/applicationset/services/mocks"
 
-	argov1alpha1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	argov1alpha1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 
 	"github.com/stretchr/testify/mock"
 	corev1 "k8s.io/api/core/v1"

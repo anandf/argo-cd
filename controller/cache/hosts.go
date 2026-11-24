@@ -10,7 +10,7 @@ import (
 	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	corev1 "k8s.io/api/core/v1"
 
-	appv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	appv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
 )
 
 // ClusterHosts is a cluster's Nodes and Pods as of BuiltAt. It is never

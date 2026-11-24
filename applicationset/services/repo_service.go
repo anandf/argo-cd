@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/util/db"
 	utilio "github.com/argoproj/argo-cd/v3/util/io"

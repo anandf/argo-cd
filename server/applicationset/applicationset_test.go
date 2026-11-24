@@ -8,7 +8,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cr_fake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	"github.com/argoproj/pkg/v2/sync"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,11 +19,12 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8scache "k8s.io/client-go/tools/cache"
 
+	appsv1 "github.com/argoproj/argo-cd/api/v3/pkg/apis/application/v1alpha1"
+	apps "github.com/argoproj/argo-cd/api/v3/pkg/client/clientset/versioned/fake"
+	appinformer "github.com/argoproj/argo-cd/api/v3/pkg/client/informers/externalversions"
+
 	"github.com/argoproj/argo-cd/v3/common"
 	"github.com/argoproj/argo-cd/v3/pkg/apiclient/applicationset"
-	appsv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
-	apps "github.com/argoproj/argo-cd/v3/pkg/client/clientset/versioned/fake"
-	appinformer "github.com/argoproj/argo-cd/v3/pkg/client/informers/externalversions"
 	"github.com/argoproj/argo-cd/v3/server/rbacpolicy"
 	"github.com/argoproj/argo-cd/v3/test"
 	"github.com/argoproj/argo-cd/v3/util/argo"
@@ -663,7 +663,7 @@ func TestResourceTree(t *testing.T) {
 				Version:   "v1alpha1",
 				Namespace: "default",
 				Health: &appsv1.HealthStatus{
-					Status:  health.HealthStatusHealthy,
+					Status:  appsv1.HealthStatusHealthy,
 					Message: "OK",
 				},
 				Status: appsv1.SyncStatusCodeSynced,
@@ -697,7 +697,7 @@ func TestResourceTree(t *testing.T) {
 					},
 				},
 				Health: &appsv1.HealthStatus{
-					Status:  health.HealthStatusHealthy,
+					Status:  appsv1.HealthStatusHealthy,
 					Message: "OK",
 				},
 			},
