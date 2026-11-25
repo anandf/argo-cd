@@ -1923,6 +1923,121 @@ func TestServeExtensions_IsolatesEachFile(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(body, "} catch(e) {"), "each extension file should have its own catch block")
 }
 
+// requireNonRoot skips a test that relies on filesystem permission bits being
+// enforced, which they are not for a process running as root.
+func requireNonRoot(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("test relies on filesystem permissions, which are not enforced for root")
+	}
+}
+
+func TestServeExtensions_SkipsUnreadableDirectory(t *testing.T) {
+	requireNonRoot(t)
+
+	tmpDir := t.TempDir()
+
+	// A readable extension, and a sibling directory that argocd-server cannot
+	// read. This models an extension delivered as an OCI image mounted as a
+	// read-only volume, where files keep their build-time ownership and modes
+	// and argocd-server runs as a non-root user.
+	readableDir := filepath.Join(tmpDir, "readable")
+	require.NoError(t, os.Mkdir(readableDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(readableDir, "extension-a.js"), []byte(`console.log("ext-a");`), 0o644))
+
+	lockedDir := filepath.Join(tmpDir, "locked")
+	require.NoError(t, os.Mkdir(lockedDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(lockedDir, "extension-b.js"), []byte(`console.log("ext-b");`), 0o644))
+	require.NoError(t, os.Chmod(lockedDir, 0o000))
+	t.Cleanup(func() {
+		_ = os.Chmod(lockedDir, 0o755)
+	})
+
+	argocd, closer := fakeServer(t)
+	defer closer()
+
+	w := httptest.NewRecorder()
+	argocd.serveExtensions(tmpDir, w)
+	body := w.Body.String()
+
+	// One unreadable directory must not take down every other extension.
+	assert.Contains(t, body, `console.log("ext-a");`, "readable extension should still be served")
+
+	// The response must stay parseable JavaScript. Writing a plain-text error
+	// after the body has started corrupts the bundle, and because the status
+	// code is already committed the client cannot detect it either.
+	assert.NotContains(t, body, "Internal error", "must not append plain text to a JavaScript response")
+	assert.Equal(t, strings.Count(body, "try {"), strings.Count(body, "} catch(e) {"), "every try block must be closed")
+}
+
+func TestServeExtensions_SkipsUnreadableFile(t *testing.T) {
+	requireNonRoot(t)
+
+	tmpDir := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "extension-a.js"), []byte(`console.log("ext-a");`), 0o644))
+
+	lockedFile := filepath.Join(tmpDir, "extension-locked.js")
+	require.NoError(t, os.WriteFile(lockedFile, []byte(`console.log("locked");`), 0o644))
+	require.NoError(t, os.Chmod(lockedFile, 0o000))
+	t.Cleanup(func() {
+		_ = os.Chmod(lockedFile, 0o644)
+	})
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "extension-z.js"), []byte(`console.log("ext-z");`), 0o644))
+
+	argocd, closer := fakeServer(t)
+	defer closer()
+
+	w := httptest.NewRecorder()
+	argocd.serveExtensions(tmpDir, w)
+	body := w.Body.String()
+
+	// Files are walked in lexical order, so extension-z.js comes after the
+	// unreadable one and proves the walk continued.
+	assert.Contains(t, body, `console.log("ext-a");`)
+	assert.Contains(t, body, `console.log("ext-z");`, "extensions after an unreadable file should still be served")
+
+	assert.NotContains(t, body, "Internal error", "must not append plain text to a JavaScript response")
+
+	// An extension that could not be opened must contribute nothing at all,
+	// rather than an unterminated try block.
+	assert.Equal(t, strings.Count(body, "try {"), strings.Count(body, "} catch(e) {"), "every try block must be closed")
+	assert.Equal(t, 2, strings.Count(body, "try {"), "only the two readable extensions should be wrapped")
+}
+
+func TestServeExtensions_MissingDirectoryIsNotAnError(t *testing.T) {
+	argocd, closer := fakeServer(t)
+	defer closer()
+
+	w := httptest.NewRecorder()
+	argocd.serveExtensions(filepath.Join(t.TempDir(), "does-not-exist"), w)
+
+	assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+	assert.Empty(t, w.Body.String())
+}
+
+func TestServeExtensions_UnreadableRootReturnsError(t *testing.T) {
+	requireNonRoot(t)
+
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, "extensions")
+	require.NoError(t, os.Mkdir(root, 0o000))
+	t.Cleanup(func() {
+		_ = os.Chmod(root, 0o755)
+	})
+
+	argocd, closer := fakeServer(t)
+	defer closer()
+
+	w := httptest.NewRecorder()
+	argocd.serveExtensions(root, w)
+
+	// Nothing has been written yet, so a real error status is still possible
+	// and is the honest response.
+	assert.Equal(t, http.StatusInternalServerError, w.Result().StatusCode)
+}
+
 func Test_StaticAssetsDir_no_symlink_traversal(t *testing.T) {
 	tmpDir := t.TempDir()
 	assetsDir := filepath.Join(tmpDir, "assets")

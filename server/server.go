@@ -1423,38 +1423,87 @@ func registerExtensions(mux *http.ServeMux, a *ArgoCDServer, metricsReg HTTPMetr
 
 var extensionsPattern = regexp.MustCompile(`^extension(.*)\.js$`)
 
+// extensionWriter wraps the response writer used to assemble the /extensions.js
+// bundle. It records whether any bytes have reached the client and whether a
+// write ever failed, so that serveExtensions can tell a failure to read one
+// extension file, which is recoverable by skipping that extension, from a
+// failure to write the response, which is not recoverable at all.
+type extensionWriter struct {
+	w        goio.Writer
+	wrote    bool
+	writeErr error
+}
+
+func (ew *extensionWriter) Write(p []byte) (int, error) {
+	n, err := ew.w.Write(p)
+	if n > 0 {
+		ew.wrote = true
+	}
+	if err != nil {
+		ew.writeErr = err
+	}
+	return n, err
+}
+
+// writeExtension appends a single extension file to the bundle, wrapped in its
+// own try/catch so a failure in one extension does not stop the others from
+// loading.
+func writeExtension(ew *extensionWriter, filePath, name string) error {
+	// Open before writing anything, so that an unreadable file contributes
+	// nothing to the bundle rather than an unterminated try block.
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file '%s': %w", filePath, err)
+	}
+	defer utilio.Close(f)
+
+	if _, err := fmt.Fprintf(ew, "// source: %s \ntry {\n", filePath); err != nil {
+		return fmt.Errorf("failed to write to response: %w", err)
+	}
+
+	var copyErr error
+	if _, err := goio.Copy(ew, f); err != nil {
+		copyErr = fmt.Errorf("failed to copy file '%s': %w", filePath, err)
+	}
+
+	// Always close the try/catch, even after a partial copy, so that the bundle
+	// stays parseable and the extensions after this one still load.
+	if _, err := fmt.Fprintf(ew, "\n} catch(e) { console.error('Extension %s failed to load:', e); }\n", name); err != nil {
+		return fmt.Errorf("failed to write to response: %w", err)
+	}
+
+	return copyErr
+}
+
 func (server *ArgoCDServer) serveExtensions(extensionsSharedPath string, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/javascript")
 
+	ew := &extensionWriter{w: w}
+	root := filepath.Clean(extensionsSharedPath)
+
 	err := filepath.Walk(extensionsSharedPath, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
+			// The extensions directory is assembled from sources Argo CD does not
+			// control, such as an init container or an OCI image mounted as a
+			// read-only volume, so individual entries may be unreadable. Skip them
+			// rather than letting one broken extension hide all the others. An
+			// unreadable root is still fatal, since it yields nothing to serve.
+			if filepath.Clean(filePath) != root {
+				log.Warnf("Skipping unreadable extensions path '%s': %v", filePath, err)
+				if info != nil && info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 			return fmt.Errorf("failed to iterate files in '%s': %w", extensionsSharedPath, err)
 		}
 		if !files.IsSymlink(info) && !info.IsDir() && extensionsPattern.MatchString(info.Name()) {
-			processFile := func() error {
-				if _, err = fmt.Fprintf(w, "// source: %s/%s \ntry {\n", filePath, info.Name()); err != nil {
-					return fmt.Errorf("failed to write to response: %w", err)
+			if err := writeExtension(ew, filePath, info.Name()); err != nil {
+				if ew.writeErr != nil {
+					// The response itself is broken, so there is nothing left to serve.
+					return fmt.Errorf("failed to serve extension file '%s': %w", filePath, err)
 				}
-
-				f, err := os.Open(filePath)
-				if err != nil {
-					return fmt.Errorf("failed to open file '%s': %w", filePath, err)
-				}
-				defer utilio.Close(f)
-
-				if _, err := goio.Copy(w, f); err != nil {
-					return fmt.Errorf("failed to copy file '%s': %w", filePath, err)
-				}
-
-				if _, err = fmt.Fprintf(w, "\n} catch(e) { console.error('Extension %s failed to load:', e); }\n", info.Name()); err != nil {
-					return fmt.Errorf("failed to write to response: %w", err)
-				}
-
-				return nil
-			}
-
-			if err := processFile(); err != nil {
-				return fmt.Errorf("failed to serve extension file '%s': %w", filePath, err)
+				log.Warnf("Skipping extension file '%s': %v", filePath, err)
 			}
 		}
 		return nil
@@ -1462,6 +1511,15 @@ func (server *ArgoCDServer) serveExtensions(extensionsSharedPath string, w http.
 
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		log.Errorf("Failed to walk extensions directory: %v", err)
+		if ew.wrote {
+			// Part of the bundle is already on the wire, so the status code is
+			// committed and plain text would make the JavaScript unparseable.
+			// Report the failure in a form the browser can still parse. The message
+			// is a constant: interpolating paths or errors here would inject into
+			// the JavaScript string literal.
+			_, _ = fmt.Fprint(w, "\nconsole.error('Argo CD failed to serve all UI extensions; see argocd-server logs for details.');\n")
+			return
+		}
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
